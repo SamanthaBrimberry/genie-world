@@ -68,7 +68,7 @@ class SpaceConfig(BaseModel):
 
 **`core/genie_client.py`** — Wraps the Genie REST API using the pattern from the tracing demo (full payload visibility at every state transition) combined with databricks-ai-bridge's `Genie` class. Provides every block access to the API with full observability built in.
 
-**`core/llm.py`** — Wraps Databricks serving endpoints with retry logic, JSON response parsing/repair, and rate limit handling. Ported from dbx-genie-rx's `llm_utils.py`. All blocks that need LLM access use this shared utility.
+**`core/llm.py`** — Calls Databricks Foundation Model API via the SDK's `client.serving_endpoints.query()`. Handles JSON response parsing/repair from LLM outputs. Auth is automatic via the WorkspaceClient (OBO, PAT, CLI). All blocks that need LLM access use this shared utility.
 
 **`core/sql.py`** — Statement Execution API wrapper with read-only SQL validation, column/row/data normalization. Ported from dbx-genie-rx's `sql_executor.py`. Used by profiler (data queries), benchmarks (result comparison), and observability (query execution).
 

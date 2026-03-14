@@ -101,7 +101,7 @@ profiler = [
     "httpx>=0.25.0",
 ]
 llm = [
-    "httpx>=0.25.0",
+    # No extra deps — uses databricks-sdk's serving_endpoints.query()
 ]
 tracing = [
     "mlflow>=2.10.0",
@@ -834,48 +834,53 @@ class TestParseJsonFromLlmResponse:
 
 class TestCallLlm:
     @patch("genie_world.core.llm.get_workspace_client")
-    def test_calls_serving_endpoint(self, mock_get_client):
+    def test_calls_serving_endpoint_via_sdk(self, mock_get_client):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
-        mock_config = MagicMock()
-        mock_config.host = "https://test.cloud.databricks.com"
-        mock_config.authenticate.return_value = {"Authorization": "Bearer token"}
-        mock_client.config = mock_config
+        # SDK serving_endpoints.query returns an object with choices
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(message=MagicMock(content="test response"))
+        ]
+        mock_client.serving_endpoints.query.return_value = mock_response
 
-        with patch("genie_world.core.llm.httpx") as mock_httpx:
-            mock_resp = MagicMock()
-            mock_resp.status_code = 200
-            mock_resp.json.return_value = {
-                "choices": [{"message": {"content": "test response"}}]
-            }
-            mock_httpx.post.return_value = mock_resp
+        result = call_llm(
+            messages=[{"role": "user", "content": "hello"}],
+            model="test-model",
+        )
 
-            result = call_llm(
+        assert result == "test response"
+        mock_client.serving_endpoints.query.assert_called_once()
+
+    @patch("genie_world.core.llm.get_workspace_client")
+    def test_raises_on_empty_content(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(message=MagicMock(content=""))
+        ]
+        mock_client.serving_endpoints.query.return_value = mock_response
+
+        with pytest.raises(ValueError, match="empty content"):
+            call_llm(
                 messages=[{"role": "user", "content": "hello"}],
                 model="test-model",
             )
 
-            assert result == "test response"
-
     @patch("genie_world.core.llm.get_workspace_client")
-    def test_raises_on_rate_limit(self, mock_get_client):
+    def test_raises_on_sdk_error(self, mock_get_client):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
-        mock_client.config.host = "https://test.cloud.databricks.com"
-        mock_client.config.authenticate.return_value = {}
+        mock_client.serving_endpoints.query.side_effect = Exception("429 Rate Limited")
 
-        with patch("genie_world.core.llm.httpx") as mock_httpx:
-            mock_resp = MagicMock()
-            mock_resp.status_code = 429
-            mock_resp.headers = {"Retry-After": "5"}
-            mock_httpx.post.return_value = mock_resp
-
-            with pytest.raises(RuntimeError, match="Rate limited"):
-                call_llm(
-                    messages=[{"role": "user", "content": "hello"}],
-                    model="test-model",
-                )
+        with pytest.raises(Exception, match="Rate Limited"):
+            call_llm(
+                messages=[{"role": "user", "content": "hello"}],
+                model="test-model",
+            )
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -887,9 +892,10 @@ Expected: FAIL — `ModuleNotFoundError`
 
 ```python
 # genie_world/core/llm.py
-"""LLM serving endpoint wrapper with retry and JSON repair.
+"""LLM serving endpoint wrapper using Databricks SDK with JSON repair.
 
-Ported from dbx-genie-rx's llm_utils.py.
+Uses client.serving_endpoints.query() for FMAPI access.
+Auth is handled automatically by the WorkspaceClient (OBO, PAT, CLI).
 """
 
 from __future__ import annotations
@@ -898,8 +904,6 @@ import json
 import logging
 import re
 import time
-
-import httpx
 
 from genie_world.core.auth import get_workspace_client
 from genie_world.core.config import get_config
@@ -911,15 +915,16 @@ def call_llm(
     messages: list[dict],
     model: str | None = None,
     max_tokens: int | None = None,
-    timeout: float = 600,
 ) -> str:
-    """Call an LLM serving endpoint.
+    """Call an LLM via Databricks Foundation Model API.
+
+    Uses the SDK's serving_endpoints.query() which handles auth
+    automatically via the WorkspaceClient.
 
     Args:
         messages: Chat messages in OpenAI format.
-        model: Model name. Defaults to config's llm_model.
+        model: Serving endpoint name. Defaults to config's llm_model.
         max_tokens: Optional max tokens for response.
-        timeout: Per-request timeout in seconds.
 
     Returns:
         The assistant's response content.
@@ -928,39 +933,20 @@ def call_llm(
         model = get_config().llm_model
 
     client = get_workspace_client()
-    host = client.config.host.rstrip("/")
-    auth_headers = client.config.authenticate()
 
-    url = f"{host}/serving-endpoints/{model}/invocations"
-    body: dict = {"messages": messages}
+    kwargs: dict = {"name": model, "messages": messages}
     if max_tokens is not None:
-        body["max_tokens"] = max_tokens
+        kwargs["max_tokens"] = max_tokens
 
     t0 = time.monotonic()
-    resp = httpx.post(url, json=body, headers=auth_headers, timeout=timeout)
+    response = client.serving_endpoints.query(**kwargs)
     elapsed = time.monotonic() - t0
     logger.info(f"LLM responded in {elapsed:.1f}s")
 
-    if resp.status_code == 429:
-        retry_after = resp.headers.get("Retry-After", "unknown")
-        raise RuntimeError(
-            f"Rate limited by serving endpoint (429). Retry-After: {retry_after}s."
-        )
+    if not response.choices:
+        raise ValueError("LLM returned no choices")
 
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"Serving endpoint returned {resp.status_code}: {resp.text[:500]}"
-        )
-
-    response = resp.json()
-
-    if not isinstance(response, dict) or "choices" not in response:
-        raise ValueError(f"Unexpected response format: {list(response.keys()) if isinstance(response, dict) else type(response)}")
-
-    if not response["choices"]:
-        raise ValueError("Response has empty 'choices' list")
-
-    content = response["choices"][0]["message"]["content"]
+    content = response.choices[0].message.content
     if not content:
         raise ValueError("LLM returned empty content")
 
@@ -1033,7 +1019,7 @@ def parse_json_from_llm_response(content: str) -> dict:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/unit/core/test_llm.py -v`
-Expected: 7 passed.
+Expected: 8 passed.
 
 - [ ] **Step 5: Commit**
 
