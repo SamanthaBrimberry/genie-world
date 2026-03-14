@@ -16,6 +16,7 @@ Genie World is a pip-installable Python library that provides modular building b
 - **MCP-ready interfaces**: Stateless, self-contained function signatures that map cleanly to future MCP tool definitions
 - **Tiered dependencies**: Core requires only `databricks-sdk` and `pydantic`. Each block's extras (Spark, MLflow, LLM endpoints) are opt-in via `pip install genie-world[profiler]`
 - **Graceful degradation**: Missing MLflow? Tracing no-ops. No warehouse? Metadata-only profiling. No LLM? Skip synonym generation.
+- **Requires Python 3.10+**
 
 ## Architecture
 
@@ -50,7 +51,18 @@ genie-world/
 
 ### Core Module Details
 
-**`core/models.py`** — Shared Pydantic types that flow between blocks. A `TableProfile` from the profiler feeds into the builder. A `SpaceConfig` flows from builder to analyzer to optimizer. This is the contract between building blocks.
+**`core/models.py`** — Shared Pydantic types that flow between blocks. A `SchemaProfile` from the profiler feeds into the builder. A `SpaceConfig` flows from builder to analyzer to optimizer. This is the contract between building blocks. Key shared models include:
+
+```python
+class SpaceConfig(BaseModel):
+    """Matches the Genie Space serialized_space JSON schema."""
+    display_name: str
+    data_sources: DataSources          # tables, metric_views
+    instructions: Instructions          # text_instructions, example_question_sqls,
+                                        # sql_functions, join_specs, sql_snippets
+    benchmarks: Benchmarks | None       # questions with SQL answers
+    # See Databricks Genie Space API docs for full schema
+```
 
 **`core/auth.py`** — Databricks authentication borrowed from dbx-genie-rx's contextvars pattern. Supports OBO (On-Behalf-Of) for Databricks Apps, PAT, OAuth, and CLI auth. Every block uses this so no block handles auth itself.
 
@@ -186,13 +198,27 @@ class Relationship(BaseModel):
     target_table: str
     target_column: str
     confidence: float  # 0-1
-    detection_method: str  # "uc_constraint" | "lineage" | "query_cooccurrence" | "naming_pattern" | "value_overlap"
+    detection_method: DetectionMethod
+
+class DetectionMethod(str, Enum):
+    UC_CONSTRAINT = "uc_constraint"
+    LINEAGE = "lineage"
+    QUERY_COOCCURRENCE = "query_cooccurrence"
+    NAMING_PATTERN = "naming_pattern"
+    VALUE_OVERLAP = "value_overlap"
+
+class ProfilingWarning(BaseModel):
+    table: str
+    tier: str              # "metadata" | "data" | "usage" | "synonyms" | "relationships"
+    message: str
 
 class SchemaProfile(BaseModel):
+    schema_version: str    # e.g., "1.0" — for artifact compatibility
     catalog: str
     schema_name: str
     tables: list[TableProfile]
     relationships: list[Relationship]
+    warnings: list[ProfilingWarning] | None  # errors/warnings from partial failures
     profiled_at: datetime
 ```
 
@@ -262,6 +288,67 @@ Input: catalog.schema (or table list)
 Output: SchemaProfile (all tables + relationships + synonyms)
         → stored as JSON artifact via core/storage.py
 ```
+
+### Dependencies
+
+The Profiler uses these core modules:
+- `core/auth.py` — WorkspaceClient for UC APIs
+- `core/sql.py` — Statement Execution API for data profiling queries
+- `core/llm.py` — LLM endpoint for synonym generation
+- `core/storage.py` — artifact persistence
+- `core/tracing.py` — optional MLflow tracing
+- `core/config.py` — warehouse ID, LLM endpoint config
+
+The Profiler does **not** use `core/genie_client.py` — it operates on Unity Catalog data, not Genie Spaces.
+
+### Error Handling
+
+Each profiling tier catches its own errors and never aborts the pipeline on a single table failure:
+- Fields that could not be computed are set to `None`
+- A `ProfilingWarning` is appended to `SchemaProfile.warnings` with the table name, tier, and error message
+- The orchestrator continues to the next tier/table regardless
+
+Example: if `data_profiler` times out on one table, that table's `cardinality`, `null_percent`, etc. remain `None`, a warning is recorded, and profiling continues for remaining tables.
+
+### Performance Considerations
+
+- **SQL concurrency**: Tables are profiled in parallel with a configurable `max_workers` (default: 4) for Statement Execution API queries
+- **LLM batching**: Synonym generation sends columns in batches per table (not one-by-one) to minimize LLM round trips
+- **Rate limiting**: Retry with exponential backoff for 429 responses (adopted from dbx-genie-rx's `llm_utils.py`)
+- **Progress callback**: Long-running profiles accept an optional `progress_callback: Callable[[str, int, int], None]` parameter (stage, current, total) for UI/notebook integration
+
+### Function Signatures
+
+```python
+def profile_schema(
+    catalog: str,
+    schema: str,
+    *,
+    deep: bool = False,
+    usage: bool = False,
+    synonyms: bool = False,
+    warehouse_id: str | None = None,
+    max_workers: int = 4,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+) -> SchemaProfile: ...
+
+def profile_tables(
+    tables: list[str],
+    *,
+    deep: bool = False,
+    usage: bool = False,
+    synonyms: bool = False,
+    warehouse_id: str | None = None,
+    max_workers: int = 4,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+) -> SchemaProfile: ...
+```
+
+### Testing (Profiler-Specific)
+
+- **Unit tests**: Mock `WorkspaceClient.catalogs/schemas/tables` for metadata, mock `statement_execution.execute_statement` for SQL results, mock LLM responses for synonyms. Verify each tier populates the correct fields and handles errors gracefully.
+- **Integration tests**: Profile a known test schema (e.g., `samples.tpch`) on a live workspace. Verify row counts, column types, and relationship detection against expected values.
+- **Fixture data**: Synthetic `TableProfile` and `ColumnProfile` fixtures for downstream block tests that consume profiler output.
 
 ---
 
@@ -418,7 +505,7 @@ suggestions = optimize_space(
 
 ### Purpose
 
-Config versioning, instruction conflict detection, and query pattern analysis. Closes the loop between observability and optimization.
+Config versioning and query pattern analysis. Closes the loop between observability and optimization. (Conflict detection lives in Block 5/Analyzer and can be imported from there.)
 
 ### Public API
 
@@ -435,8 +522,8 @@ patterns = analyze_patterns(space_id="abc123", since="30d")
 ### Key Modules
 
 - `versioner.py` — snapshots space configs with labels and timestamps, diffs between versions, tracks score changes
-- `conflict_detector.py` — cross-references all instruction types for contradictions
 - `pattern_analyzer.py` — mines query traces for failing question patterns, misselected columns, SQL anti-patterns
+- For conflict detection, import `conflict_detector` from `genie_world.analyzer`
 
 ### Consumes / Produces
 
