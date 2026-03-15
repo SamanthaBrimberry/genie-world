@@ -143,7 +143,7 @@ def assemble_space(
 
     # Add benchmarks if provided
     if benchmarks and benchmarks.get("questions"):
-        questions = benchmarks["questions"]
+        questions = [_process_dict(q) for q in benchmarks["questions"]]
         _add_ids(questions)
         config["benchmarks"] = {"questions": questions}
 

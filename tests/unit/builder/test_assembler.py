@@ -87,6 +87,20 @@ class TestAssembleSpace:
         assert len(config["benchmarks"]["questions"]) == 1
         assert "id" in config["benchmarks"]["questions"][0]
 
+    def test_benchmark_question_strings_wrapped_in_arrays(self):
+        """Bare string 'question' fields in benchmarks must be wrapped as lists."""
+        config = assemble_space(
+            data_sources={"tables": []}, join_specs=[], instructions=[],
+            snippets={"filters": [], "expressions": [], "measures": []},
+            examples=[],
+            benchmarks={"questions": [
+                {"question": "How many orders?", "answer": [{"format": "SQL", "content": ["SELECT COUNT(*) FROM t"]}]},
+            ]},
+        )
+        q = config["benchmarks"]["questions"][0]
+        assert isinstance(q["question"], list), f"Expected list, got {type(q['question'])}"
+        assert q["question"] == ["How many orders?"]
+
     def test_passthrough_sql_functions(self):
         config = assemble_space(
             data_sources={"tables": []}, join_specs=[], instructions=[],
