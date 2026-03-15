@@ -35,7 +35,7 @@ class TestGenerateJoinSpecs:
         spec = specs[0]
         assert spec["left"]["identifier"] == "main.sales.orders"
         assert spec["right"]["identifier"] == "main.sales.customers"
-        assert "orders.customer_id = customers.id" in spec["sql"]
+        assert "orders.customer_id = customers.id" in spec["sql"][0]
 
     def test_filters_low_confidence(self):
         profile = _make_profile_with_rels()
