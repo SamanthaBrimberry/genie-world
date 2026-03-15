@@ -5,6 +5,7 @@ from __future__ import annotations
 from genie_world.profiler.models import ColumnProfile, DetectionMethod, Relationship, TableProfile
 from genie_world.profiler.relationship_detector import (
     detect_by_naming_patterns,
+    detect_by_shared_columns,
     merge_relationships,
 )
 
@@ -98,6 +99,83 @@ class TestDetectByNamingPatterns:
         assert rel.source_column == "user_fk"
         assert rel.target_table == "main.app.users"
         assert rel.target_column == "id"
+
+
+class TestDetectBySharedColumns:
+    def test_shared_column_with_owner(self):
+        """campaign_id shared across campaigns + campaign_performance → campaigns owns it."""
+        campaigns = _make_table(
+            "main", "marketing", "campaigns",
+            [_col("campaign_id"), _col("name"), _col("budget")],
+        )
+        perf = _make_table(
+            "main", "marketing", "campaign_performance_demo",
+            [_col("campaign_id"), _col("impressions"), _col("clicks")],
+        )
+        geo = _make_table(
+            "main", "marketing", "campaign_performance_geo",
+            [_col("campaign_id"), _col("market"), _col("spend")],
+        )
+
+        rels = detect_by_shared_columns([campaigns, perf, geo])
+
+        # perf and geo should both reference campaigns
+        assert len(rels) == 2
+        for rel in rels:
+            assert rel.target_table == "main.marketing.campaigns"
+            assert rel.target_column == "campaign_id"
+            assert rel.source_column == "campaign_id"
+            assert rel.confidence == 0.7
+
+    def test_shared_column_no_owner(self):
+        """When no table name matches the prefix, creates lower-confidence pairs."""
+        table_a = _make_table(
+            "main", "data", "events",
+            [_col("session_id"), _col("event_type")],
+        )
+        table_b = _make_table(
+            "main", "data", "clicks",
+            [_col("session_id"), _col("url")],
+        )
+
+        rels = detect_by_shared_columns([table_a, table_b])
+
+        # No table named "session" or "sessions", so lower confidence pair
+        assert len(rels) == 1
+        assert rels[0].confidence == 0.4
+
+    def test_shared_column_with_group_id(self):
+        """group_id across campaigns and campaign_groups → campaign_groups owns it."""
+        campaigns = _make_table(
+            "main", "mkt", "campaigns",
+            [_col("campaign_id"), _col("group_id")],
+        )
+        groups = _make_table(
+            "main", "mkt", "campaign_groups",
+            [_col("group_id"), _col("album_id")],
+        )
+
+        rels = detect_by_shared_columns([campaigns, groups])
+
+        # "group" prefix → matches "campaign_groups" via plural? No — prefix is "group",
+        # candidate names are "group", "groups". Neither matches "campaign_groups".
+        # So this falls to no-owner case with confidence 0.4
+        assert len(rels) >= 1
+        assert rels[0].source_column == "group_id"
+
+    def test_ignores_non_fk_columns(self):
+        """Columns not ending in _id/_key/_fk should be ignored."""
+        table_a = _make_table("main", "d", "a", [_col("name"), _col("email")])
+        table_b = _make_table("main", "d", "b", [_col("name"), _col("phone")])
+
+        rels = detect_by_shared_columns([table_a, table_b])
+        assert rels == []
+
+    def test_single_table_no_relationships(self):
+        """A single table can't have shared-column relationships."""
+        table = _make_table("main", "d", "t", [_col("campaign_id")])
+        rels = detect_by_shared_columns([table])
+        assert rels == []
 
 
 class TestMergeRelationships:

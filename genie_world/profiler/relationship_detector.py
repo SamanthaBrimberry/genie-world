@@ -123,6 +123,95 @@ def detect_by_naming_patterns(tables: list[TableProfile]) -> list[Relationship]:
     return relationships
 
 
+def detect_by_shared_columns(tables: list[TableProfile]) -> list[Relationship]:
+    """Detect relationships where two tables share a column name ending in _id/_key/_fk.
+
+    When the same column name (e.g., campaign_id) appears in multiple tables,
+    one of those tables likely "owns" it (the column matches table_name + suffix)
+    and the others reference it.
+
+    For example, campaign_id in tables [campaigns, campaign_performance_demo,
+    campaign_platform_totals] → campaigns owns it, the others reference it.
+
+    Also handles exact-match joins where the same column name appears across
+    tables without a clear owner (lower confidence).
+
+    Args:
+        tables: List of TableProfile objects to scan.
+
+    Returns:
+        A list of inferred Relationship objects.
+    """
+    # Build column-to-tables index: column_name -> [(table, full_name)]
+    col_to_tables: dict[str, list[tuple[TableProfile, str]]] = {}
+    for tbl in tables:
+        full_name = f"{tbl.catalog}.{tbl.schema_name}.{tbl.table}"
+        for col in tbl.columns:
+            col_lower = col.name.lower()
+            if not any(col_lower.endswith(suffix) for suffix in _FK_SUFFIXES):
+                continue
+            if col_lower not in col_to_tables:
+                col_to_tables[col_lower] = []
+            col_to_tables[col_lower].append((tbl, full_name))
+
+    relationships: list[Relationship] = []
+
+    for col_name, table_entries in col_to_tables.items():
+        if len(table_entries) < 2:
+            continue
+
+        # Try to find the "owner" table — the one whose name matches the column prefix
+        prefix = None
+        for suffix in _FK_SUFFIXES:
+            if col_name.endswith(suffix) and len(col_name) > len(suffix):
+                prefix = col_name[: -len(suffix)]
+                break
+
+        if prefix is None:
+            continue
+
+        # Find owner: table whose name matches prefix (or plural/singular variants)
+        owner: tuple[TableProfile, str] | None = None
+        candidates = _candidate_table_names(prefix)
+        for tbl, full_name in table_entries:
+            if tbl.table.lower() in candidates:
+                owner = (tbl, full_name)
+                break
+
+        if owner is None:
+            # No clear owner — create relationships between all pairs with lower confidence
+            for i, (tbl_a, full_a) in enumerate(table_entries):
+                for tbl_b, full_b in table_entries[i + 1 :]:
+                    relationships.append(
+                        Relationship(
+                            source_table=full_a,
+                            source_column=col_name,
+                            target_table=full_b,
+                            target_column=col_name,
+                            confidence=0.4,
+                            detection_method=DetectionMethod.NAMING_PATTERN,
+                        )
+                    )
+        else:
+            # Owner found — all other tables reference the owner
+            owner_tbl, owner_full = owner
+            for tbl, full_name in table_entries:
+                if full_name == owner_full:
+                    continue
+                relationships.append(
+                    Relationship(
+                        source_table=full_name,
+                        source_column=col_name,
+                        target_table=owner_full,
+                        target_column=col_name,
+                        confidence=0.7,
+                        detection_method=DetectionMethod.NAMING_PATTERN,
+                    )
+                )
+
+    return relationships
+
+
 def merge_relationships(*sources: list[Relationship]) -> list[Relationship]:
     """Merge multiple relationship lists, deduplicating by (src_table, src_col, tgt_table, tgt_col).
 

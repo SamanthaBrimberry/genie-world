@@ -15,6 +15,7 @@ from genie_world.profiler.models import (
 )
 from genie_world.profiler.relationship_detector import (
     detect_by_naming_patterns,
+    detect_by_shared_columns,
     merge_relationships,
 )
 from genie_world.profiler.synonym_generator import generate_synonyms_for_table
@@ -92,7 +93,7 @@ def profile_schema(
         all_warnings.extend(usage_warnings)
 
     # --- Relationships ---
-    named_rels: list[Relationship] = detect_by_naming_patterns(tables)
+    named_rels: list[Relationship] = detect_by_naming_patterns(tables) + detect_by_shared_columns(tables)
     declared_rels: list[Relationship] = []
 
     if usage and warehouse_id:
@@ -220,7 +221,7 @@ def profile_tables(
         all_warnings.extend(usage_warnings)
 
     # --- Relationships ---
-    named_rels: list[Relationship] = detect_by_naming_patterns(table_profiles)
+    named_rels: list[Relationship] = detect_by_naming_patterns(table_profiles) + detect_by_shared_columns(table_profiles)
     declared_rels: list[Relationship] = []
 
     if usage and warehouse_id:
