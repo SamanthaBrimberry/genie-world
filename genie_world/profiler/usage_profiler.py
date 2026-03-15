@@ -141,29 +141,47 @@ def enrich_with_usage(
     if not tables:
         return tables, []
 
+    table_names = [t.table for t in tables]
+    table_list_sql = ", ".join(f"'{t}'" for t in table_names)
+
     sql = f"""
 SELECT
-  table_name,
+  object_name AS table_name,
   COUNT(*) AS query_count
-FROM (
-  SELECT
-    EXPLODE(table_list.table_full_name) AS table_name
-  FROM (
-    SELECT
-      FLATTEN(COLLECT_LIST(read_columns.table)) AS table_list
-    FROM system.query.history
-    LATERAL VIEW EXPLODE(read_columns) AS read_columns
-    WHERE
-      execution_status = 'FINISHED'
-      AND start_time >= DATEADD(DAY, -30, CURRENT_TIMESTAMP())
-      AND read_columns.catalog = '{catalog}'
-      AND read_columns.schema = '{schema}'
-  )
-)
-GROUP BY table_name
+FROM system.access.audit
+WHERE action_name = 'commandSubmit'
+  AND request_params.commandType = 'DatabricksSqlStatement'
+  AND request_params.objectType = 'TABLE'
+  AND request_params.objectCatalog = '{catalog}'
+  AND request_params.objectSchema = '{schema}'
+  AND request_params.objectName IN ({table_list_sql})
+  AND event_date >= DATEADD(DAY, -30, CURRENT_DATE())
+GROUP BY object_name
 """.strip()
 
-    result = execute_sql(sql, warehouse_id=warehouse_id)
+    # Fallback: try the simpler query_history approach if audit table isn't available
+    simple_sql = f"""
+SELECT
+  t.table_name,
+  COUNT(*) AS query_count
+FROM system.query.history h
+  LATERAL VIEW EXPLODE(
+    TRANSFORM(
+      FILTER(h.read_tables, x -> x.table_catalog = '{catalog}' AND x.table_schema = '{schema}'),
+      x -> x.table_name
+    )
+  ) t AS table_name
+WHERE h.execution_status = 'FINISHED'
+  AND h.start_time >= DATEADD(DAY, -30, CURRENT_TIMESTAMP())
+GROUP BY t.table_name
+""".strip()
+
+    # Try simple query_history first, fall back to audit table
+    result = execute_sql(simple_sql, warehouse_id=warehouse_id)
+
+    if result.get("error"):
+        logger.info(f"query.history query failed, trying audit table: {result['error']}")
+        result = execute_sql(sql, warehouse_id=warehouse_id)
 
     if result.get("error"):
         warning_table = f"{catalog}.{schema}"
