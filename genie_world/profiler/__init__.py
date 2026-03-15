@@ -18,6 +18,7 @@ from genie_world.profiler.relationship_detector import (
     detect_by_shared_columns,
     merge_relationships,
 )
+from genie_world.profiler.description_enricher import enrich_descriptions_for_table
 from genie_world.profiler.synonym_generator import generate_synonyms_for_table
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ def profile_schema(
     deep: bool = False,
     usage: bool = False,
     synonyms: bool = False,
+    enrich_descriptions: bool = False,
     warehouse_id: str | None = None,
     max_workers: int = 4,
     progress_callback=None,
@@ -49,6 +51,7 @@ def profile_schema(
         deep: Whether to run SQL-based Tier 2 statistical profiling.
         usage: Whether to run Tier 3 usage profiling and declared relationship detection.
         synonyms: Whether to generate LLM-based column synonyms.
+        enrich_descriptions: Whether to fill in missing table/column descriptions via LLM.
         warehouse_id: SQL warehouse ID required for Tier 2 and Tier 3.
         max_workers: Thread pool size for parallel Tier 2 profiling.
         progress_callback: Optional callable(table_name: str) invoked after each table is processed.
@@ -113,6 +116,15 @@ def profile_schema(
             all_warnings.extend(syn_warnings)
         tables = synonym_tables
 
+    # --- Description enrichment ---
+    if enrich_descriptions:
+        desc_tables: list[TableProfile] = []
+        for tbl in tables:
+            enriched_tbl, desc_warnings = enrich_descriptions_for_table(tbl)
+            desc_tables.append(enriched_tbl)
+            all_warnings.extend(desc_warnings)
+        tables = desc_tables
+
     return SchemaProfile(
         schema_version="1.0",
         catalog=catalog,
@@ -130,6 +142,7 @@ def profile_tables(
     deep: bool = False,
     usage: bool = False,
     synonyms: bool = False,
+    enrich_descriptions: bool = False,
     warehouse_id: str | None = None,
     max_workers: int = 4,
     progress_callback=None,
@@ -240,6 +253,15 @@ def profile_tables(
             synonym_tables.append(enriched_tbl)
             all_warnings.extend(syn_warnings)
         table_profiles = synonym_tables
+
+    # --- Description enrichment ---
+    if enrich_descriptions:
+        desc_tables: list[TableProfile] = []
+        for tbl in table_profiles:
+            enriched_tbl, desc_warnings = enrich_descriptions_for_table(tbl)
+            desc_tables.append(enriched_tbl)
+            all_warnings.extend(desc_warnings)
+        table_profiles = desc_tables
 
     return SchemaProfile(
         schema_version="1.0",
