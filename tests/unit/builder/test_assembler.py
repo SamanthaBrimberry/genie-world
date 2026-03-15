@@ -28,11 +28,13 @@ class TestAssembleSpace:
             examples=[],
         )
 
-        # Check join spec has ID
-        js = config["instructions"]["join_specs"][0]
+        # Join specs are stored in _generated_join_specs (not deployed due to API issue)
+        js = config["_generated_join_specs"][0]
         assert "id" in js
         assert len(js["id"]) == 32
         assert js["id"].isalnum()
+        # Deployed join_specs should be empty
+        assert config["instructions"]["join_specs"] == []
 
     def test_derives_sample_questions(self):
         config = assemble_space(

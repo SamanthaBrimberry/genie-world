@@ -140,6 +140,9 @@ def assemble_space(
         instructions = instructions[:1]
 
     # Build config
+    # NOTE: join_specs are excluded from the deployed config due to a Databricks API
+    # protobuf parsing issue. Join specs are stored in the BuildResult for reference
+    # but Genie will infer joins from table relationships automatically.
     config: dict = {
         "version": 2,
         "config": {"sample_questions": sample_questions},
@@ -148,9 +151,10 @@ def assemble_space(
             "text_instructions": instructions,
             "example_question_sqls": examples,
             "sql_functions": sql_functions or [],
-            "join_specs": join_specs,
+            "join_specs": [],
             "sql_snippets": snippets,
         },
+        "_generated_join_specs": join_specs,  # Stored for reference, not deployed
     }
 
     # Add metric_views if provided
