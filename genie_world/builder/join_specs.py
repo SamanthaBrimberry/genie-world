@@ -38,9 +38,9 @@ def generate_join_specs(profile: SchemaProfile) -> list[dict]:
         specs.append({
             "left": {"identifier": rel.source_table, "alias": left_alias},
             "right": {"identifier": rel.target_table, "alias": right_alias},
-            "sql": [f"{left_alias}.{rel.source_column} = {right_alias}.{rel.target_column}"],
-            "comment": [f"Join {left_alias} to {right_alias} on {rel.source_column} ({confidence_label} confidence, detected via {rel.detection_method.value})."],
-            "instruction": [instruction_strength],
+            "sql": f"{left_alias}.{rel.source_column} = {right_alias}.{rel.target_column}",
+            "comment": f"Join {left_alias} to {right_alias} on {rel.source_column} ({confidence_label} confidence, detected via {rel.detection_method.value}).",
+            "instruction": instruction_strength,
         })
 
     return specs

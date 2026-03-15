@@ -35,7 +35,7 @@ class TestGenerateJoinSpecs:
         spec = specs[0]
         assert spec["left"]["identifier"] == "main.sales.orders"
         assert spec["right"]["identifier"] == "main.sales.customers"
-        assert "orders.customer_id = customers.id" in spec["sql"][0]
+        assert "orders.customer_id = customers.id" in spec["sql"]
 
     def test_filters_low_confidence(self):
         profile = _make_profile_with_rels()
@@ -49,8 +49,8 @@ class TestGenerateJoinSpecs:
         spec = specs[0]
         assert "comment" in spec
         assert "instruction" in spec
-        assert isinstance(spec["comment"], list)
-        assert isinstance(spec["instruction"], list)
+        assert isinstance(spec["comment"], str)
+        assert isinstance(spec["instruction"], str)
 
     def test_empty_relationships(self):
         profile = SchemaProfile(

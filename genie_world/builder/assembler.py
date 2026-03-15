@@ -91,8 +91,9 @@ def assemble_space(
     sorting, and schema constraints.
     """
     # Process string arrays in all sections
+    # NOTE: join_specs are NOT processed — the Genie API expects bare strings
+    # for sql, comment, and instruction fields in join_specs (not arrays)
     data_sources = _process_dict(data_sources)
-    join_specs = [_process_dict(js) for js in join_specs]
     instructions = [_process_dict(inst) for inst in instructions]
     examples = [_process_dict(ex) for ex in examples]
 
