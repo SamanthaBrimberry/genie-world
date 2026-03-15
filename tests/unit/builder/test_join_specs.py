@@ -49,8 +49,8 @@ class TestGenerateJoinSpecs:
         spec = specs[0]
         assert "comment" in spec
         assert "instruction" in spec
-        assert isinstance(spec["comment"], str)
-        assert isinstance(spec["instruction"], str)
+        assert isinstance(spec["comment"], list)
+        assert isinstance(spec["instruction"], list)
 
     def test_empty_relationships(self):
         profile = SchemaProfile(
