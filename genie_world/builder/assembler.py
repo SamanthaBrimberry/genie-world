@@ -61,6 +61,11 @@ def _process_dict(obj: dict) -> dict:
     return result
 
 
+def _sort_by_id(items: list[dict]) -> list[dict]:
+    """Sort a list of dicts by their 'id' field."""
+    return sorted(items, key=lambda x: x.get("id", ""))
+
+
 def _add_ids(items: list[dict]) -> list[dict]:
     """Add 'id' field to each dict that doesn't already have one."""
     for item in items:
@@ -97,7 +102,7 @@ def assemble_space(
         "measures": [_process_dict(m) for m in snippets.get("measures", [])],
     }
 
-    # Generate IDs
+    # Generate IDs and sort by id (API requirement)
     _add_ids(join_specs)
     _add_ids(instructions)
     _add_ids(examples)
@@ -117,6 +122,17 @@ def assemble_space(
         if isinstance(q, str):
             q = [q]
         sample_questions.append({"id": _gen_id(), "question": q})
+
+    # Sort all ID-bearing arrays by id (Genie API requirement)
+    join_specs = _sort_by_id(join_specs)
+    instructions = _sort_by_id(instructions)
+    examples = _sort_by_id(examples)
+    sample_questions = _sort_by_id(sample_questions)
+    snippets["filters"] = _sort_by_id(snippets["filters"])
+    snippets["expressions"] = _sort_by_id(snippets["expressions"])
+    snippets["measures"] = _sort_by_id(snippets["measures"])
+    if sql_functions:
+        sql_functions = _sort_by_id(sql_functions)
 
     # Constraint: at most 1 text instruction
     if len(instructions) > 1:
@@ -145,6 +161,7 @@ def assemble_space(
     if benchmarks and benchmarks.get("questions"):
         questions = [_process_dict(q) for q in benchmarks["questions"]]
         _add_ids(questions)
+        questions = _sort_by_id(questions)
         config["benchmarks"] = {"questions": questions}
 
     return config
