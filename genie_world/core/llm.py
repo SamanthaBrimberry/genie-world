@@ -1,7 +1,7 @@
 """LLM serving endpoint wrapper using Databricks SDK with JSON repair.
 
-Uses client.serving_endpoints.query() for FMAPI access.
-Auth is handled automatically by the WorkspaceClient (OBO, PAT, CLI).
+Uses the WorkspaceClient's raw API for FMAPI access, which accepts plain
+dict messages and works across all SDK versions and auth modes (OBO, PAT, CLI).
 """
 
 from __future__ import annotations
@@ -24,11 +24,11 @@ def call_llm(
 ) -> str:
     """Call an LLM via Databricks Foundation Model API.
 
-    Uses the SDK's serving_endpoints.query() which handles auth
-    automatically via the WorkspaceClient.
+    Uses the WorkspaceClient's raw API to POST to the serving endpoint.
+    This avoids SDK serialization issues with plain dict messages.
 
     Args:
-        messages: Chat messages in OpenAI format.
+        messages: Chat messages in OpenAI format (list of dicts).
         model: Serving endpoint name. Defaults to config's llm_model.
         max_tokens: Optional max tokens for response.
 
@@ -40,19 +40,27 @@ def call_llm(
 
     client = get_workspace_client()
 
-    kwargs: dict = {"name": model, "messages": messages}
+    body: dict = {"messages": messages}
     if max_tokens is not None:
-        kwargs["max_tokens"] = max_tokens
+        body["max_tokens"] = max_tokens
 
     t0 = time.monotonic()
-    response = client.serving_endpoints.query(**kwargs)
+    response = client.api_client.do(
+        "POST",
+        f"/serving-endpoints/{model}/invocations",
+        body=body,
+    )
     elapsed = time.monotonic() - t0
     logger.info(f"LLM responded in {elapsed:.1f}s")
 
-    if not response.choices:
+    if not isinstance(response, dict):
+        raise ValueError(f"Unexpected response type: {type(response)}")
+
+    choices = response.get("choices", [])
+    if not choices:
         raise ValueError("LLM returned no choices")
 
-    content = response.choices[0].message.content
+    content = choices[0].get("message", {}).get("content", "")
     if not content:
         raise ValueError("LLM returned empty content")
 
