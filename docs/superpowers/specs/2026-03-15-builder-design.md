@@ -6,7 +6,7 @@ The Space Builder takes a `SchemaProfile` (from the profiler) and programmatical
 
 ## Prerequisites
 
-**Profiler enhancement (before Builder implementation):** The profiler should generate missing column/table descriptions via LLM when metadata is sparse. This ensures the Builder receives complete metadata and doesn't need to fill gaps itself. Add an `enrich_descriptions=True` flag to `profile_schema()` that calls the LLM for tables/columns with no description.
+**Profiler enhancement (before Builder implementation):** The profiler should generate missing column/table descriptions via LLM when metadata is sparse. This ensures the Builder receives complete metadata and doesn't need to fill gaps itself. Implementation: add a `description_enricher.py` module to `genie_world/profiler/` that takes a `SchemaProfile` and fills in missing `TableProfile.description` and `ColumnProfile.description` fields via LLM (using column names, types, and sample values as context). Wire it into `profile_schema()` via a new `enrich_descriptions: bool = False` parameter, called after synonym generation. This supersedes the project spec's profiler signature — add `enrich_descriptions` alongside `synonyms`.
 
 ## Design Principles
 
@@ -119,7 +119,7 @@ def generate_example_sqls(
 The LLM receives profile context, join specs, and snippets. Generates `count` example Q&A pairs, each with:
 - `question` → natural language question
 - `sql` → SQL answer
-- `parameters` → for parameterized queries: `name`, `type_hint`, `description`, `default_value`
+- `parameters` → for parameterized queries: `name`, `type_hint`, `description` (list of strings per schema), `default_value` (must be `{"values": ["..."]}` object per schema)
 - `usage_guidance` → when to use this example
 
 Asks for a mix of complexity: simple single-table, multi-table joins, aggregations with filters, parameterized queries.
@@ -159,10 +159,10 @@ def validate_and_fix_sql(
 ```
 
 1. Execute SQL via `core/sql.py`
-2. If succeeds → return as-is
+2. Success = no error in result dict (query parsed and executed without SQL errors). Row count is not checked — an empty result set is valid.
 3. If fails → send error message + original question + profile context to LLM asking for a fix
 4. Retry up to `max_retries` times
-5. If still failing → return last attempt with a warning
+5. If still failing → return last attempt with a `BuilderWarning`
 
 ### `instructions.py` (LLM, Generated Last)
 
@@ -185,7 +185,7 @@ Generated LAST so it sees all examples and snippets. Produces a single text inst
 
 The prompt includes dbx-genie-rx best practices: focused, minimal, globally-applicable, no conflicts with SQL examples.
 
-Returns a list containing one text instruction dict with `content` as a list of strings.
+Returns a list containing one text instruction dict with `content` as a list of strings. No `id` field — IDs are assigned by the assembler for all elements.
 
 ### `assembler.py`
 
@@ -205,12 +205,14 @@ def assemble_space(
 ```
 
 Handles:
-- **ID generation** — 32-char lowercase hex IDs via `uuid4().hex` for all elements
-- **`sample_questions` derivation** — extracts 3-5 question texts from `examples`, wraps in `{"id": "...", "question": ["..."]}` format (no SQL)
-- **String array enforcement** — wraps bare strings in lists for schema fields (`description`, `content`, `sql`, `synonyms`, etc.)
+- **ID generation** — 32-char lowercase hex IDs via `uuid4().hex` for all elements that need IDs: text_instructions, example_question_sqls, join_specs, filters, expressions, measures, questions, sample_questions, and sql_functions (if provided without IDs)
+- **`sample_questions` derivation** — extracts 3-5 question texts from `examples`, wraps in `{"id": "...", "question": ["..."]}` format (no SQL field)
+- **String array enforcement** — wraps bare strings in lists for ALL schema fields that require string arrays: `description`, `content`, `question`, `sql`, `instruction`, `synonyms`, `usage_guidance`, `comment`, and `parameters[].description`
+- **`default_value` enforcement** — ensures `parameters[].default_value` is in `{"values": [...]}` format; wraps bare strings
 - **String splitting** — splits strings > 1KB into multiple array elements
-- **Sorting** — sorts all arrays by required keys per schema
-- **Constraint enforcement** — at most 1 text instruction, removes empty SQL snippets
+- **Sorting** — sorts all arrays by required keys per schema, including `metric_views[].column_configs` by `column_name`
+- **Constraint enforcement** — at most 1 text instruction, removes empty SQL snippets, ensures each `benchmarks.questions[].answer` contains exactly 1 item with `format: "SQL"`
+- **Size budget checks** — warns if combined `comment`/`instruction`/`usage_guidance` fields exceed 64 KB
 - **Schema version** — sets `version: 2`
 - **Correct nesting** — outputs the proper structure:
 
@@ -254,6 +256,7 @@ def create_space(
 
 Ported from dbx-genie-rx's `genie_creator.py`:
 - Serializes config to JSON string for `serialized_space`
+- **Pre-flight size check** — verifies serialized JSON is ≤ 3.5 MB before calling API; raises ValueError with size info if exceeded
 - Calls `POST /api/2.0/genie/spaces` via workspace client
 - Maps common API errors to user-friendly exceptions (403 → PermissionError, 400 → ValueError)
 
@@ -270,11 +273,12 @@ def build_space(
     benchmark_count: int = 10,
     sql_functions: list[dict] | None = None,
     metric_views: list[dict] | None = None,
-) -> dict:
+) -> BuildResult:
     """Generate a complete Genie Space config from a SchemaProfile.
 
+    Returns BuildResult with config dict and list of BuilderWarnings.
     If warehouse_id is provided, generated SQL is validated and fixed (up to 3 retries).
-    If None, SQL is generated without validation (warning logged).
+    If None, SQL is generated without validation (warning added to BuildResult).
     """
 ```
 
@@ -290,6 +294,24 @@ def create_space(
     """Deploy a config to Databricks as a new Genie Space."""
 ```
 
+### `__init__.py` Exports
+
+`genie_world/builder/__init__.py` exports the following public API:
+
+| Export | Source Module |
+|--------|-------------|
+| `build_space` | `__init__.py` (orchestrator) |
+| `create_space` | `deployer.py` |
+| `assemble_space` | `assembler.py` |
+| `generate_data_sources` | `data_sources.py` |
+| `generate_join_specs` | `join_specs.py` |
+| `generate_snippets` | `snippets.py` |
+| `generate_example_sqls` | `example_sqls.py` |
+| `generate_benchmarks` | `benchmarks.py` |
+| `generate_instructions` | `instructions.py` |
+| `BuildResult` | `__init__.py` |
+| `BuilderWarning` | `__init__.py` |
+
 ### Individual generators — Fine-grained control
 
 All section generators are importable from `genie_world.builder`:
@@ -301,12 +323,39 @@ All section generators are importable from `genie_world.builder`:
 - `generate_instructions(profile, join_specs, snippets, examples)`
 - `assemble_space(data_sources, join_specs, instructions, snippets, examples, benchmarks, ...)`
 
+## Warning Model
+
+```python
+class BuilderWarning(BaseModel):
+    section: str       # "example_sqls", "benchmarks", "snippets", etc.
+    message: str
+    detail: str | None = None  # e.g., the failing SQL or LLM error
+```
+
+`build_space()` returns a `BuildResult`:
+
+```python
+class BuildResult(BaseModel):
+    config: dict
+    warnings: list[BuilderWarning]
+```
+
+This surfaces SQL validation failures, LLM errors, and size budget warnings to the caller without silently embedding invalid content.
+
 ## Error Handling
 
-- **No warehouse_id** — `build_space()` generates everything but skips SQL validation. Logs warning: "SQL validation skipped — no warehouse_id provided."
-- **SQL validation failure after 3 retries** — includes the failing SQL in the config with a `ProfilingWarning`-style warning. User can fix manually.
-- **LLM errors** — each generator catches LLM errors and returns empty/partial results with warnings. The assembler handles missing sections gracefully.
+- **No warehouse_id** — `build_space()` generates everything but skips SQL validation. Adds `BuilderWarning` with message "SQL validation skipped — no warehouse_id provided."
+- **SQL validation failure after 3 retries** — includes the failing SQL in the config and adds a `BuilderWarning` with the error detail. User can fix manually.
+- **LLM errors** — each generator catches LLM errors and returns empty/partial results with `BuilderWarning`. The assembler handles missing sections gracefully.
 - **Deployment errors** — mapped to user-friendly exceptions (PermissionError, ValueError, TimeoutError).
+
+## API Compatibility Note
+
+This spec **supersedes** the Block 2 section of the project spec (`2026-03-14-genie-world-design.md`). Key differences from the project spec:
+- `build_space()` returns `BuildResult` (with warnings), not a plain dict
+- `create_space()` uses `parent_path` parameter (not `target_directory`)
+- `create_space()` requires `warehouse_id` parameter
+- Boolean toggle flags (`instructions=True`, etc.) were removed — all sections are always generated; use individual generators if you want to skip a section
 
 ## Testing Strategy
 
@@ -322,8 +371,14 @@ from genie_world.profiler import profile_schema
 from genie_world.builder import build_space, create_space
 
 profile = profile_schema("my_catalog", "my_schema", deep=True, synonyms=True, warehouse_id="wh-123")
-config = build_space(profile, warehouse_id="wh-123")
-result = create_space(config, "Sales Analytics", "wh-123", "/Workspace/Users/me/")
+build_result = build_space(profile, warehouse_id="wh-123")
+
+# Check for warnings
+for w in build_result.warnings:
+    print(f"  [{w.section}] {w.message}")
+
+# Deploy
+result = create_space(build_result.config, "Sales Analytics", "wh-123", "/Workspace/Users/me/")
 print(f"Space: {result['space_url']}")
 ```
 
