@@ -33,7 +33,9 @@ def create_space(
     if not parent_path.endswith("/"):
         parent_path += "/"
 
-    serialized = json.dumps(config)
+    # Strip internal fields (prefixed with _) before serializing
+    clean_config = {k: v for k, v in config.items() if not k.startswith("_")}
+    serialized = json.dumps(clean_config)
 
     if len(serialized) > _MAX_SERIALIZED_SIZE:
         size_mb = len(serialized) / (1024 * 1024)
