@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from genie_world.builder.assembler import assemble_space
 from genie_world.builder.benchmarks import generate_benchmarks
-from genie_world.builder.data_sources import generate_data_sources
+from genie_world.builder.data_sources import generate_data_sources, suggest_table_exclusions
 from genie_world.builder.deployer import create_space
 from genie_world.builder.example_sqls import generate_example_sqls
 from genie_world.builder.instructions import generate_instructions
@@ -45,7 +45,6 @@ def build_space(
     benchmark_count: int = 10,
     include_tables: list[str] | None = None,
     exclude_tables: list[str] | None = None,
-    auto_filter: bool = True,
     sql_functions: list[dict] | None = None,
     metric_views: list[dict] | None = None,
 ) -> BuildResult:
@@ -58,7 +57,6 @@ def build_space(
         benchmark_count: Number of benchmark questions to generate.
         include_tables: If set, only include these tables (by short name).
         exclude_tables: Table names to explicitly exclude.
-        auto_filter: Auto-exclude ML/embedding/non-queryable tables (default True).
         sql_functions: Optional pass-through UC function references.
         metric_views: Optional pass-through metric views.
 
@@ -72,12 +70,21 @@ def build_space(
             message="SQL validation skipped — no warehouse_id provided.",
         ))
 
-    # 1. Deterministic generators (with table filtering)
+    # Surface table exclusion suggestions
+    from genie_world.builder.data_sources import suggest_table_exclusions
+    suggestions = suggest_table_exclusions(profile)
+    for s in suggestions:
+        if not include_tables and s["table"].lower() not in set(t.lower() for t in (exclude_tables or [])):
+            warnings.append(BuilderWarning(
+                section="data_sources",
+                message=f"Consider excluding table '{s['table']}': {s['reason']}",
+            ))
+
+    # 1. Deterministic generators
     data_sources = generate_data_sources(
         profile,
         include_tables=include_tables,
         exclude_tables=exclude_tables,
-        auto_filter=auto_filter,
     )
     join_specs = generate_join_specs(profile)
 

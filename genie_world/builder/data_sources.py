@@ -70,36 +70,38 @@ def _should_enable_format_assistance(col: ColumnProfile) -> bool:
 
 _NON_QUERYABLE_TYPES = {"BINARY", "STRUCT", "MAP", "ARRAY"}
 
-# Table name patterns that suggest non-analytics tables
-_EXCLUDED_TABLE_PATTERNS = {
-    "embedding", "vector", "index", "payload", "checkpoint",
-    "log", "metadata", "staging", "tmp", "temp", "raw",
-}
 
+def _table_recommendation(table) -> str | None:
+    """Return a reason to consider excluding this table, or None if it looks fine.
 
-def _should_exclude_table(table) -> bool:
-    """Check if a table should be excluded from the Genie Space.
-
-    Excludes tables that are likely ML artifacts, inference logs, or
-    non-queryable (e.g., binary/embedding tables).
+    This does NOT auto-exclude — it surfaces recommendations for the user to decide.
     """
-    name_lower = table.table.lower()
-
-    # Check table name patterns
-    for pattern in _EXCLUDED_TABLE_PATTERNS:
-        if pattern in name_lower:
-            return True
-
-    # Check if most columns are non-queryable types
     if table.columns:
         non_queryable = sum(
             1 for c in table.columns
             if any(t in c.data_type.upper() for t in _NON_QUERYABLE_TYPES)
         )
         if non_queryable / len(table.columns) > 0.5:
-            return True
+            return f"Most columns ({non_queryable}/{len(table.columns)}) are non-queryable types (BINARY, STRUCT, etc.)"
 
-    return False
+    if not table.columns:
+        return "Table has no columns"
+
+    return None
+
+
+def suggest_table_exclusions(profile: SchemaProfile) -> list[dict]:
+    """Analyze profile and suggest tables that may not be useful in a Genie Space.
+
+    Returns a list of {"table": name, "reason": why} recommendations.
+    Users should review and decide — this does NOT auto-exclude anything.
+    """
+    suggestions = []
+    for table in profile.tables:
+        reason = _table_recommendation(table)
+        if reason:
+            suggestions.append({"table": table.table, "reason": reason})
+    return suggestions
 
 
 def generate_data_sources(
@@ -107,15 +109,13 @@ def generate_data_sources(
     *,
     exclude_tables: list[str] | None = None,
     include_tables: list[str] | None = None,
-    auto_filter: bool = True,
 ) -> dict:
     """Transform a SchemaProfile into the data_sources config section.
 
     Args:
         profile: The SchemaProfile to transform.
         exclude_tables: Table names to explicitly exclude.
-        include_tables: If set, ONLY include these tables (overrides auto_filter).
-        auto_filter: Automatically exclude ML/embedding/non-queryable tables.
+        include_tables: If set, ONLY include these tables.
 
     Produces table entries with column_configs including descriptions,
     synonyms, entity matching, format assistance, and exclusions.
@@ -127,12 +127,10 @@ def generate_data_sources(
     tables = []
 
     for table in profile.tables:
-        # Table filtering
+        # Table filtering — only explicit include/exclude, no silent auto-filtering
         if include_set and table.table.lower() not in include_set:
             continue
         if table.table.lower() in exclude_set:
-            continue
-        if auto_filter and not include_set and _should_exclude_table(table):
             continue
 
         identifier = f"{table.catalog}.{table.schema_name}.{table.table}"
