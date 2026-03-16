@@ -7,7 +7,65 @@ from genie_world.profiler.models import ColumnProfile, SchemaProfile
 _INTERNAL_COLUMN_PATTERNS = {"_metadata", "_rescued_data", "_commit_version", "_commit_timestamp"}
 _DATE_TYPES = {"DATE", "TIMESTAMP"}
 _STRING_TYPES = {"STRING", "CHAR", "VARCHAR"}
+_NUMERIC_TYPES = {"INT", "BIGINT", "LONG", "SHORT", "BYTE", "FLOAT", "DOUBLE", "DECIMAL"}
 _ENTITY_MATCHING_CARDINALITY_THRESHOLD = 100
+
+# Column name patterns that strongly suggest entity matching should be enabled
+_ENTITY_MATCHING_NAME_PATTERNS = {
+    "name", "status", "type", "category", "region", "market", "platform",
+    "gender", "country", "state", "city", "segment", "tier", "level",
+    "group", "role", "format", "channel", "source", "label", "tag",
+    "department", "division", "brand", "vendor", "supplier",
+}
+
+
+def _should_enable_entity_matching(col: ColumnProfile) -> bool:
+    """Determine if entity matching should be enabled for a column.
+
+    Enables entity matching for string columns that are likely categorical/dimension
+    columns users will filter by name. Uses cardinality when available, falls back
+    to name-based heuristics.
+    """
+    is_string = col.data_type.upper() in _STRING_TYPES
+    if not is_string:
+        return False
+
+    # If we have cardinality data, use it
+    if col.cardinality is not None:
+        return col.cardinality < _ENTITY_MATCHING_CARDINALITY_THRESHOLD
+
+    # If column has synonyms, it's likely a dimension column
+    if col.synonyms:
+        return True
+
+    # Fall back to name-based heuristics
+    col_lower = col.name.lower()
+    for pattern in _ENTITY_MATCHING_NAME_PATTERNS:
+        if pattern in col_lower:
+            return True
+
+    # Columns ending in common dimension suffixes
+    if col_lower.endswith(("_name", "_type", "_status", "_category")):
+        return True
+
+    return False
+
+
+def _should_enable_format_assistance(col: ColumnProfile) -> bool:
+    """Determine if format assistance should be enabled for a column.
+
+    Enables format assistance for date/timestamp columns and string columns
+    that are likely categorical (helps Genie show format hints to users).
+    """
+    is_date = col.data_type.upper() in _DATE_TYPES
+    if is_date:
+        return True
+
+    # String columns that qualify for entity matching also benefit from format assistance
+    if _should_enable_entity_matching(col):
+        return True
+
+    return False
 
 
 def generate_data_sources(profile: SchemaProfile) -> dict:
@@ -32,15 +90,10 @@ def generate_data_sources(profile: SchemaProfile) -> dict:
             if col.synonyms:
                 config["synonyms"] = col.synonyms
 
-            # Entity matching: string columns with low cardinality and synonyms
-            is_string = col.data_type.upper() in _STRING_TYPES
-            low_card = col.cardinality is not None and col.cardinality < _ENTITY_MATCHING_CARDINALITY_THRESHOLD
-            if is_string and (low_card or col.synonyms):
+            if _should_enable_entity_matching(col):
                 config["enable_entity_matching"] = True
 
-            # Format assistance: date/timestamp columns and low-cardinality strings
-            is_date = col.data_type.upper() in _DATE_TYPES
-            if is_date or (is_string and low_card):
+            if _should_enable_format_assistance(col):
                 config["enable_format_assistance"] = True
 
             # Exclude internal columns

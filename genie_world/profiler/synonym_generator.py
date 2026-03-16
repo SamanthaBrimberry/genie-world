@@ -20,7 +20,15 @@ def _build_synonym_prompt(table_name: str, columns: list[ColumnProfile]) -> list
     Returns:
         A list of chat message dicts in OpenAI format.
     """
-    col_list = "\n".join(f"  - {col.name} ({col.data_type})" for col in columns)
+    col_lines = []
+    for col in columns:
+        parts = [f"  - {col.name} ({col.data_type})"]
+        if col.description:
+            parts.append(f"    Description: {col.description}")
+        if col.sample_values:
+            parts.append(f"    Sample values: {', '.join(str(v) for v in col.sample_values[:5])}")
+        col_lines.append("\n".join(parts))
+    col_list = "\n".join(col_lines)
 
     system_msg = (
         "You are a data dictionary expert. Your job is to suggest business-friendly "
@@ -31,10 +39,13 @@ def _build_synonym_prompt(table_name: str, columns: list[ColumnProfile]) -> list
     user_msg = (
         f"Table: {table_name}\n\n"
         f"Columns:\n{col_list}\n\n"
-        "For each column, provide up to 3 synonyms that business users might use to "
-        "refer to that column. Return a JSON object where each key is the column name "
+        "IMPORTANT: You MUST provide synonyms for EVERY column listed above. "
+        "Do not skip any columns. For each column, provide 2-4 synonyms that "
+        "business users might use to refer to that column. Include abbreviations, "
+        "business jargon, and natural language alternatives.\n\n"
+        "Return a JSON object where each key is the exact column name "
         "and the value is a list of synonym strings.\n\n"
-        'Example format: {"column_name": ["synonym1", "synonym2"]}'
+        'Example: {"column_name": ["synonym1", "synonym2", "synonym3"]}'
     )
 
     return [
