@@ -37,11 +37,17 @@ def _build_snippets_prompt(profile: SchemaProfile) -> list[dict]:
         "Generate SQL snippets in three categories:\n\n"
         "1. **filters**: Common WHERE clause conditions (e.g., date ranges, status filters)\n"
         "   Each: {sql, display_name, synonyms: [...], comment, instruction}\n\n"
-        "2. **expressions**: Reusable calculated columns (e.g., YEAR(date), category buckets)\n"
+        "2. **expressions**: Reusable calculated columns (e.g., YEAR(date), DATEDIFF, CASE WHEN)\n"
         "   Each: {alias, sql, display_name, synonyms: [...], comment, instruction}\n\n"
-        "3. **measures**: Standard aggregations (e.g., SUM, COUNT DISTINCT)\n"
+        "3. **measures**: Standard aggregations (e.g., SUM, COUNT DISTINCT, AVG)\n"
         "   Each: {alias, sql, display_name, synonyms: [...], comment, instruction}\n\n"
-        "Generate 2-4 items per category. Use actual table and column names from above.\n\n"
+        "IMPORTANT RULES:\n"
+        "- Keep SQL simple — single expressions only, NO subqueries or nested SELECTs\n"
+        "- Filters: simple conditions like column = value, column >= DATE, column IN (...)\n"
+        "- Expressions: simple column transformations like YEAR(col), DATEDIFF(DAY, col1, col2)\n"
+        "- Measures: simple aggregations like SUM(col), COUNT(DISTINCT col), AVG(col)\n"
+        "- Use table_name.column_name format (e.g., campaigns.status, not just status)\n\n"
+        "Generate 2-4 items per category.\n\n"
         'Return: {"filters": [...], "expressions": [...], "measures": [...]}'
     )
 

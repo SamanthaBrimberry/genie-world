@@ -43,10 +43,24 @@ def build_space(
     warehouse_id: str | None = None,
     example_count: int = 10,
     benchmark_count: int = 10,
+    include_tables: list[str] | None = None,
+    exclude_tables: list[str] | None = None,
+    auto_filter: bool = True,
     sql_functions: list[dict] | None = None,
     metric_views: list[dict] | None = None,
 ) -> BuildResult:
     """Generate a complete Genie Space config from a SchemaProfile.
+
+    Args:
+        profile: SchemaProfile from the profiler.
+        warehouse_id: If provided, generated SQL is validated and fixed.
+        example_count: Number of example Q&A pairs to generate.
+        benchmark_count: Number of benchmark questions to generate.
+        include_tables: If set, only include these tables (by short name).
+        exclude_tables: Table names to explicitly exclude.
+        auto_filter: Auto-exclude ML/embedding/non-queryable tables (default True).
+        sql_functions: Optional pass-through UC function references.
+        metric_views: Optional pass-through metric views.
 
     Returns BuildResult with config dict and list of BuilderWarnings.
     """
@@ -58,8 +72,13 @@ def build_space(
             message="SQL validation skipped — no warehouse_id provided.",
         ))
 
-    # 1. Deterministic generators
-    data_sources = generate_data_sources(profile)
+    # 1. Deterministic generators (with table filtering)
+    data_sources = generate_data_sources(
+        profile,
+        include_tables=include_tables,
+        exclude_tables=exclude_tables,
+        auto_filter=auto_filter,
+    )
     join_specs = generate_join_specs(profile)
 
     # 2. LLM: snippets

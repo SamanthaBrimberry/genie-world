@@ -69,9 +69,12 @@ def _build_examples_prompt(
         f"Generate {count} diverse example question-SQL pairs.\n"
         "Mix complexity: simple single-table, multi-table joins, aggregations, filters.\n"
         "Use fully-qualified table names in SQL.\n\n"
+        "IMPORTANT: Include 2-3 parameterized examples using :parameter_name syntax.\n"
+        "For parameterized examples, include a 'parameters' array with name, type_hint, and description.\n\n"
         "Return a JSON array of objects:\n"
-        '[{"question": "...", "sql": "SELECT ...", "usage_guidance": "..."}]\n\n'
-        "Include usage_guidance for complex examples only."
+        '[{"question": "...", "sql": "SELECT ...", "usage_guidance": "optional context"},\n'
+        ' {"question": "...", "sql": "SELECT ... WHERE col = :param", "parameters": [{"name": "param", "type_hint": "STRING", "description": "Desc"}]}]\n\n'
+        "Include usage_guidance for complex or parameterized examples."
     )
 
     return [
