@@ -6,11 +6,18 @@ The Benchmarks block runs questions against a live Genie Space, evaluates accura
 
 ## Prerequisites
 
-**`core/genie_client.py`** — Genie Conversation API wrapper (deferred from earlier blocks, required now).
+**`core/genie_client.py`** — Genie Conversation API wrapper. This is a **blocking prerequisite** — the entire benchmarks block depends on it. It must be implemented as the first task in the implementation plan, including:
+- `GenieClient.ask()` — conversation polling with attachment parsing
+- `GenieClient.get_config()` — GET with serialized_space
+- `GenieClient.update_config()` — PATCH with constraint enforcement
+- Rate-limit detection — surface 429/throttling errors distinctly in `GenieResponse.error` so the evaluator can distinguish infra failures from genuine "no SQL" outcomes
+
+**PATCH API verification** — The `PATCH /api/2.0/genie/spaces/{space_id}` endpoint is documented in official Databricks API docs. If unavailable on a specific workspace, `update_space()` should fall back to delete + recreate.
 
 ## Design Principles
 
-- **Composable steps** — run_benchmarks, diagnose, suggest, update are independently callable
+- **Composable steps** — run_benchmarks, diagnose_failures, generate_suggestions, update_space are independently callable
+- **No name collisions** — the benchmarks block uses `run_benchmarks()` (not `generate_benchmarks()` which exists in the builder block)
 - **Auto-tune wrapper** — `tune_space()` composes the steps into an iterative loop with guardrails
 - **Hybrid evaluation** — programmatic comparison first (fast, deterministic), LLM fallback for ambiguous cases
 - **Performance-aware** — captures execution metrics to flag correct-but-slow queries
@@ -143,17 +150,21 @@ class ExecutionMetrics(BaseModel):
     execution_time_ms: float | None = None
     row_count: int = 0
 
+class QuestionSource(str, Enum):
+    SPACE_CONFIG = "space_config"
+    CUSTOM = "custom"
+
 class QuestionInput(BaseModel):
     """A question to benchmark."""
     question: str
     expected_sql: str
-    source: str  # "space_config" | "custom"
+    source: QuestionSource
 
 class QuestionResult(BaseModel):
     """Result of running one question against Genie."""
     question: str
     expected_sql: str
-    source: str                              # "space_config" | "custom"
+    source: QuestionSource
     label: BenchmarkLabel
     confidence: float = 1.0
     expected_result: dict | None = None      # {columns, data, row_count}
@@ -229,6 +240,10 @@ def run_questions(
 
 Uses `GenieClient.ask()` via ThreadPoolExecutor. Returns `GenieResponse` per question.
 
+**Extracting questions from space config:** Space config benchmark questions use the nested format `{"question": ["..."], "answer": [{"format": "SQL", "content": ["SELECT ...", "FROM ..."]}]}`. The runner extracts: `question = " ".join(q["question"])`, `expected_sql = " ".join(q["answer"][0]["content"])` (joining string arrays back into single strings).
+
+**Parameterized questions:** If a benchmark question's expected SQL contains `:parameter_name` markers and has a `parameters` array with `default_value`, the runner substitutes default values before execution. Questions with parameters but no defaults are skipped with a warning.
+
 ### `evaluator.py`
 
 ```python
@@ -260,9 +275,10 @@ Evaluation flow:
    - NULL-aware value comparison (NULL == NULL for comparison purposes)
    - Detect ORDER BY in expected SQL → order-sensitive comparison if present, sort-then-compare if not
    - Numeric tolerance: 0.1% relative, 0.01 absolute for floating point
+   - Truncation check: if either result has `truncated=True` (from `execute_sql`), skip row-count comparison — compare only available rows
    - Same columns + same data → `CORRECT` (1.0)
    - Different columns → `INCORRECT` (1.0)
-   - Same columns, row count differs >2x → `INCORRECT` (1.0)
+   - Same columns, row count differs >2x (neither truncated) → `INCORRECT` (1.0)
    - Same columns, small differences → `UNCERTAIN`
 5. **LLM fallback** (UNCERTAIN only) — send both SQLs + result samples + question → `CORRECT` or `INCORRECT` with confidence
 
@@ -343,16 +359,17 @@ def update_space(
 Flow:
 1. Fetch current config via `GenieClient.get_config()`
 2. For each suggestion:
-   - `"add"` → append to the appropriate section
-   - `"update"` → find entry by `target_id`, replace
+   - `"add"` → append to the appropriate section, generate new ID via `uuid4().hex`
+   - `"update"` → find entry by `target_id`, replace content (preserve existing ID)
    - `"remove"` → find entry by `target_id`, delete
 3. Re-derive `sample_questions` if examples changed
-4. Re-enforce assembler constraints (sorting, string arrays, ID generation for new entries)
+4. **Lightweight constraint enforcement** — does NOT use full `assemble_space()` (which would clobber manually-added join specs and inject internal fields). Instead, uses targeted helpers from `assembler.py`:
+   - `_ensure_string_array()` on new/updated entries
+   - `_sort_by_id()` on modified sections
+   - Verify benchmark answer cardinality (exactly 1 answer item)
 5. Strip `_`-prefixed internal fields
 6. PATCH via `GenieClient.update_config()`
 7. Return `UpdateResult` with changes count and updated config
-
-Reuses `builder/assembler.py` for constraint enforcement.
 
 ## Public API
 
@@ -422,9 +439,17 @@ def tune_space(
     calls update_space() manually, then re-runs tune_space().
 
     When auto_approve=True: full loop up to max_iterations. Each iteration
-    applies suggestions, then re-benchmarks. Re-runs failing questions +
-    random sample of passing questions (regression detection). Stops when
-    target_accuracy reached or max_iterations exhausted.
+    applies suggestions, then re-benchmarks.
+
+    Regression detection (iterations 2+):
+    - Re-runs ALL failing questions from previous iteration
+    - Re-runs 50% of previously passing questions (deterministic sample
+      using hash of question text for reproducibility, no random seed needed)
+    - If a previously passing question now fails → flagged as regression in warnings
+    - If net accuracy decreased from previous iteration → loop stops early
+    - Accuracy is always computed against the FULL question set (not just re-run sample)
+
+    Stops when target_accuracy reached or max_iterations exhausted.
     """
 ```
 
@@ -480,8 +505,29 @@ print(f"Final: {result.final_accuracy:.0%} in {len(result.iterations)} iteration
 print(f"Target reached: {result.target_reached}")
 ```
 
+## `__init__.py` Exports
+
+| Export | Source Module |
+|--------|-------------|
+| `run_benchmarks` | `__init__.py` (orchestrator) |
+| `diagnose_failures` | `diagnoser.py` |
+| `generate_suggestions` | `suggester.py` |
+| `update_space` | `updater.py` |
+| `tune_space` | `__init__.py` (loop wrapper) |
+| `BenchmarkResult` | `models.py` |
+| `QuestionResult` | `models.py` |
+| `Diagnosis` | `models.py` |
+| `Suggestion` | `models.py` |
+| `UpdateResult` | `models.py` |
+| `TuneResult` | `models.py` |
+| `BenchmarkLabel` | `models.py` |
+| `FailureType` | `models.py` |
+| `QuestionSource` | `models.py` |
+
 ## Error Handling
 
+- **Space config fetch failure** — `run_benchmarks()` raises `ValueError` if it cannot fetch the space config (required for downstream diagnosis). `BenchmarkResult.space_config` is guaranteed non-None on success.
+- **Genie API rate limits** — 429/throttling errors are surfaced in `GenieResponse.error` with a distinct message pattern ("rate_limited") so the evaluator can distinguish infra failures from genuine "no SQL" outcomes. Rate-limited questions are not counted against accuracy.
 - **Genie API timeout** — individual questions that timeout get `NO_SQL` label with error_detail
 - **Expected SQL fails** — labeled `EXPECTED_SQL_ERROR`, excluded from accuracy calculation
 - **LLM errors in evaluator** — question stays `UNCERTAIN`, counted separately
