@@ -148,11 +148,23 @@ def _compare_results(
     exp_cols_norm = _normalize_columns(exp_cols)
     gen_cols_norm = _normalize_columns(gen_cols)
 
-    # Column mismatch → INCORRECT
-    if sorted(exp_cols_norm) != sorted(gen_cols_norm):
-        return (
-            BenchmarkLabel.INCORRECT,
-            f"Column mismatch: expected {exp_cols_norm}, got {gen_cols_norm}",
+    # Column comparison — be lenient about aliases
+    cols_match_exactly = sorted(exp_cols_norm) == sorted(gen_cols_norm)
+    cols_same_count = len(exp_cols_norm) == len(gen_cols_norm)
+
+    if not cols_match_exactly:
+        if not cols_same_count:
+            # Different number of columns — likely a structural difference
+            # but route to UNCERTAIN for LLM judgment instead of hard INCORRECT
+            return (
+                BenchmarkLabel.UNCERTAIN,
+                f"Column count mismatch: expected {len(exp_cols_norm)} cols {exp_cols_norm}, got {len(gen_cols_norm)} cols {gen_cols_norm}",
+            )
+        # Same count but different names — likely alias differences
+        # Try positional matching (SQL SELECT order is the semantic mapping)
+        logger.info(
+            "Column names differ but same count — using positional matching: %s vs %s",
+            exp_cols_norm, gen_cols_norm,
         )
 
     exp_data = expected.get("data", [])
@@ -182,14 +194,15 @@ def _compare_results(
             )
 
     # Reorder columns in genie data to match expected column order (for value comparison)
-    if exp_cols_norm != gen_cols_norm:
-        # Reorder genie columns to match expected order
+    if cols_match_exactly and exp_cols_norm != gen_cols_norm:
+        # Same columns but different order — reorder genie to match expected
         col_index = {name: i for i, name in enumerate(gen_cols_norm)}
         try:
             reorder = [col_index[c] for c in exp_cols_norm]
             gen_data = [[row[i] for i in reorder] for row in gen_data]
         except (KeyError, IndexError):
-            pass  # Fall through to uncertain
+            pass
+    # If columns have same count but different names, compare positionally (no reorder needed)
 
     # Compare data
     if order_sensitive:
@@ -254,17 +267,27 @@ def _llm_compare(
     try:
         from genie_world.core.llm import call_llm, parse_json_from_llm_response
 
+        exp_cols = [c["name"] if isinstance(c, dict) else c for c in expected_result.get("columns", [])]
+        gen_cols = [c["name"] if isinstance(c, dict) else c for c in genie_result.get("columns", [])]
+
         prompt = f"""You are evaluating whether a Genie AI response correctly answers a data question.
 
 Question: {question}
 
 Expected SQL: {expected_sql}
+Expected columns: {exp_cols}
 Expected result (sample): {str(expected_result.get("data", [])[:5])}
 
 Genie SQL: {genie_sql or "(none)"}
+Genie columns: {gen_cols}
 Genie result (sample): {str(genie_result.get("data", [])[:5])}
 
-Are these results semantically equivalent? Consider numeric rounding, column ordering, and formatting differences.
+Are these results semantically equivalent? Consider:
+- Column ALIASES may differ (e.g., "total_spend" vs "total_spend_usd" — same data = correct)
+- Genie may include extra columns beyond what was asked — if the core answer is there, it's correct
+- Genie may have fewer columns — if key metrics are missing, it's incorrect
+- Numeric rounding and formatting differences are acceptable
+- Row ordering differences are acceptable unless the question asks for ranking/top-N
 
 Respond with JSON: {{"verdict": "correct" or "incorrect", "confidence": 0.0-1.0, "reason": "..."}}"""
 

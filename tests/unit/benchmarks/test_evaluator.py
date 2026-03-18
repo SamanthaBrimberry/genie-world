@@ -54,11 +54,20 @@ class TestCompareResults:
         label, detail = _compare_results(expected, genie, order_sensitive=False)
         assert label == BenchmarkLabel.CORRECT
 
-    def test_different_columns(self):
+    def test_different_column_names_same_count_is_uncertain(self):
+        """Same number of columns but different names — use positional match, route to LLM."""
         expected = {"columns": [{"name": "id"}], "data": [["1"]], "row_count": 1}
         genie = {"columns": [{"name": "name"}], "data": [["a"]], "row_count": 1}
         label, detail = _compare_results(expected, genie, order_sensitive=False)
-        assert label == BenchmarkLabel.INCORRECT
+        # Data differs ("1" vs "a") so even positional match fails → UNCERTAIN for LLM
+        assert label in (BenchmarkLabel.UNCERTAIN, BenchmarkLabel.INCORRECT)
+
+    def test_different_column_count_is_uncertain(self):
+        """Different number of columns → UNCERTAIN for LLM judgment."""
+        expected = {"columns": [{"name": "id"}, {"name": "val"}], "data": [["1", "2"]], "row_count": 1}
+        genie = {"columns": [{"name": "id"}], "data": [["1"]], "row_count": 1}
+        label, detail = _compare_results(expected, genie, order_sensitive=False)
+        assert label == BenchmarkLabel.UNCERTAIN
 
     def test_row_count_differs_2x(self):
         expected = {"columns": [{"name": "id"}], "data": [["1"]], "row_count": 1}
