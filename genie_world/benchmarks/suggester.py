@@ -71,8 +71,12 @@ def _suggest_add_example(
     if sql:
         # Validate SQL; use a minimal profile stub since we don't have full schema here
         try:
+            from datetime import datetime
             from genie_world.profiler.models import SchemaProfile
-            profile = SchemaProfile(tables=[])
+            profile = SchemaProfile(
+                schema_version="1.0", catalog="", schema_name="",
+                tables=[], relationships=[], profiled_at=datetime.now(),
+            )
             validated_sql, warnings = validate_and_fix_sql(
                 sql=sql,
                 question=question,
@@ -180,7 +184,7 @@ def _suggest_sql_filter(
         return Suggestion(
             section="sql_snippets",
             action="add",
-            content={"content": [filter_sql], "description": description},
+            content={"sql": [filter_sql], "display_name": description},
             rationale=(
                 f"Adding filter snippet to address {diagnosis.failure_type.value}: "
                 f"{diagnosis.detail}"
@@ -274,7 +278,7 @@ def _suggest_date_expression(
             Suggestion(
                 section="sql_snippets",
                 action="add",
-                content={"content": [expression], "description": "Date expression snippet"},
+                content={"sql": [expression], "display_name": "Date expression snippet", "alias": "date_expr"},
                 rationale=(
                     f"Adding date expression snippet to address wrong date handling: "
                     f"{diagnosis.detail}"

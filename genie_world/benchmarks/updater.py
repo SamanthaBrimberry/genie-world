@@ -82,10 +82,23 @@ def _merge_suggestions(config: dict, suggestions: list[Suggestion]) -> dict:
         action = suggestion.action
 
         if action == "add":
-            new_item = dict(suggestion.content or {})
-            new_item["id"] = uuid4().hex
-            section_list.append(new_item)
-            modified_sections.add(section)
+            # Special case: text_instructions is limited to 1 item
+            # Append content to existing instruction instead of adding new entry
+            if section == "text_instructions" and section_list:
+                existing = section_list[0]
+                new_content = (suggestion.content or {}).get("content", [])
+                if isinstance(new_content, str):
+                    new_content = [new_content]
+                existing_content = existing.get("content", [])
+                if isinstance(existing_content, str):
+                    existing_content = [existing_content]
+                existing["content"] = existing_content + new_content
+                modified_sections.add(section)
+            else:
+                new_item = dict(suggestion.content or {})
+                new_item["id"] = uuid4().hex
+                section_list.append(new_item)
+                modified_sections.add(section)
 
         elif action == "update":
             target_id = suggestion.target_id

@@ -112,6 +112,7 @@ class TestMergeSuggestions:
         assert len(instrs) == 0
 
     def test_multiple_suggestions_applied_in_order(self):
+        """Text instruction adds append content to existing; update replaces."""
         config = {"instructions": {"text_instructions": [
             {"id": "instr-1", "content": ["Old"]},
         ]}}
@@ -131,9 +132,10 @@ class TestMergeSuggestions:
 
         merged = _merge_suggestions(config, suggestions)
         instrs = merged["instructions"]["text_instructions"]
-        assert len(instrs) == 2
-        updated = next(i for i in instrs if i["id"] == "instr-1")
-        assert updated["content"] == ["Updated"]
+        # Still 1 entry: add appended "New A" to existing, then update replaced content
+        assert len(instrs) == 1
+        assert instrs[0]["id"] == "instr-1"
+        assert instrs[0]["content"] == ["Updated"]
 
     def test_add_to_sql_snippets_filters(self):
         config = {
@@ -153,24 +155,43 @@ class TestMergeSuggestions:
         assert "id" in filters[0]
 
     def test_add_generates_unique_ids(self):
-        config = {"instructions": {"text_instructions": []}}
+        """Adding to example_question_sqls generates unique IDs per entry."""
+        config = {"instructions": {"example_question_sqls": []}}
         suggestions = [
             Suggestion(
-                section="text_instructions", action="add",
-                content={"content": ["Instruction A"]},
+                section="example_question_sqls", action="add",
+                content={"question": ["Q1"], "sql": ["SELECT 1"]},
                 rationale="test", addresses_questions=[],
             ),
             Suggestion(
+                section="example_question_sqls", action="add",
+                content={"question": ["Q2"], "sql": ["SELECT 2"]},
+                rationale="test", addresses_questions=[],
+            ),
+        ]
+
+        merged = _merge_suggestions(config, suggestions)
+        examples = merged["instructions"]["example_question_sqls"]
+        ids = [e["id"] for e in examples]
+        assert len(set(ids)) == 2  # all unique
+
+    def test_text_instruction_add_appends_content(self):
+        """Adding to text_instructions appends content to existing entry."""
+        config = {"instructions": {"text_instructions": [
+            {"id": "instr-1", "content": ["Line 1"]},
+        ]}}
+        suggestions = [
+            Suggestion(
                 section="text_instructions", action="add",
-                content={"content": ["Instruction B"]},
+                content={"content": ["Line 2"]},
                 rationale="test", addresses_questions=[],
             ),
         ]
 
         merged = _merge_suggestions(config, suggestions)
         instrs = merged["instructions"]["text_instructions"]
-        ids = [i["id"] for i in instrs]
-        assert len(set(ids)) == 2  # all unique
+        assert len(instrs) == 1  # still 1 entry
+        assert instrs[0]["content"] == ["Line 1", "Line 2"]
 
     def test_sorted_by_id_after_merge(self):
         config = {"instructions": {"text_instructions": [
