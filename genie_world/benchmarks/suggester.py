@@ -18,12 +18,21 @@ logger = logging.getLogger(__name__)
 
 
 def _get_tables_context(results: BenchmarkResult) -> str:
-    """Extract table info from space_config as context string."""
+    """Extract table info from space_config as a concise context string."""
     if not results.space_config:
         return "(no table config)"
     data_sources = results.space_config.get("data_sources", {})
     tables = data_sources.get("tables", [])
-    return str(tables) if tables else "(no tables in config)"
+    if not tables:
+        return "(no tables in config)"
+
+    lines = []
+    for t in tables:
+        ident = t.get("identifier", "?")
+        cols = t.get("column_configs", [])
+        col_names = [c.get("column_name", "?") for c in cols[:20]]
+        lines.append(f"  {ident}: {', '.join(col_names)}")
+    return "\n".join(lines)
 
 
 def _suggest_add_example(
@@ -324,13 +333,13 @@ def generate_suggestions(
             if suggestion is not None:
                 suggestions.append(suggestion)
         except Exception as e:
-            logger.error(
+            logger.warning(
                 "Failed to generate suggestion for question %r (failure_type=%s): %s",
                 diagnosis.question,
                 diagnosis.failure_type,
                 e,
             )
-            return []  # graceful failure: return empty on any error
+            # Continue to next diagnosis rather than aborting all
 
     return suggestions
 
