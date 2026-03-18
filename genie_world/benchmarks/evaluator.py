@@ -218,8 +218,9 @@ def _compare_results(
             return BenchmarkLabel.CORRECT, "Results match (order-sensitive)"
         # Same count, ordered mismatch — check if it's an order issue (unordered match)
         if _rows_equal_unordered(exp_data, gen_data):
-            # Rows exist but in wrong order → definitive INCORRECT for order-sensitive
-            return BenchmarkLabel.INCORRECT, "Results match unordered but order is incorrect"
+            # Data is correct but ordering differs — route to LLM to decide
+            # if the ordering difference matters for this question
+            return BenchmarkLabel.UNCERTAIN, "Data matches but ordering differs — needs LLM review"
         # Values differ too — UNCERTAIN for LLM review
         return (
             BenchmarkLabel.UNCERTAIN,
@@ -291,14 +292,27 @@ Are these results semantically equivalent? Consider:
 
 Respond with JSON: {{"verdict": "correct" or "incorrect", "confidence": 0.0-1.0, "reason": "..."}}"""
 
-        response = call_llm(
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=256,
-        )
-        parsed = parse_json_from_llm_response(response)
-        verdict = parsed.get("verdict", "incorrect").lower()
-        confidence = float(parsed.get("confidence", 0.5))
-        reason = parsed.get("reason", "LLM evaluation")
+        messages = [
+            {"role": "system", "content": "You are a SQL evaluation expert. Always respond with valid JSON only — no prose, no markdown."},
+            {"role": "user", "content": prompt},
+        ]
+        response = call_llm(messages=messages, max_tokens=256)
+
+        # Try structured parse first, fall back to keyword detection
+        try:
+            parsed = parse_json_from_llm_response(response)
+            verdict = parsed.get("verdict", "incorrect").lower()
+            confidence = float(parsed.get("confidence", 0.5))
+            reason = parsed.get("reason", "LLM evaluation")
+        except (ValueError, KeyError):
+            # Fallback: detect verdict from raw text
+            response_lower = response.lower()
+            if "correct" in response_lower and "incorrect" not in response_lower:
+                verdict, confidence, reason = "correct", 0.7, f"LLM text: {response[:100]}"
+            elif "incorrect" in response_lower or "not equivalent" in response_lower:
+                verdict, confidence, reason = "incorrect", 0.7, f"LLM text: {response[:100]}"
+            else:
+                verdict, confidence, reason = "incorrect", 0.5, f"Could not parse LLM response: {response[:100]}"
 
         label = BenchmarkLabel.CORRECT if verdict == "correct" else BenchmarkLabel.INCORRECT
         return label, confidence, reason

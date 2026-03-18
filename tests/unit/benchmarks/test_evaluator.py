@@ -75,12 +75,13 @@ class TestCompareResults:
         label, detail = _compare_results(expected, genie, order_sensitive=False)
         assert label == BenchmarkLabel.INCORRECT
 
-    def test_order_sensitive_mismatch(self):
+    def test_order_sensitive_mismatch_routes_to_uncertain(self):
+        """Data matches unordered but order differs → UNCERTAIN for LLM."""
         expected = {"columns": [{"name": "id"}], "data": [["1"], ["2"]], "row_count": 2}
         genie = {"columns": [{"name": "id"}], "data": [["2"], ["1"]], "row_count": 2}
         label_ordered, _ = _compare_results(expected, genie, order_sensitive=True)
         label_unordered, _ = _compare_results(expected, genie, order_sensitive=False)
-        assert label_ordered == BenchmarkLabel.INCORRECT  # order matters
+        assert label_ordered == BenchmarkLabel.UNCERTAIN  # data correct but order differs → LLM
         assert label_unordered == BenchmarkLabel.CORRECT  # order doesn't matter
 
     def test_numeric_tolerance(self):
