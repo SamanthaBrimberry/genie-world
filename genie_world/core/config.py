@@ -17,12 +17,16 @@ class GenieWorldConfig:
     @classmethod
     def from_env(cls) -> GenieWorldConfig:
         max_workers_str = os.environ.get("GENIE_WORLD_MAX_WORKERS", "4")
+        try:
+            max_workers = int(max_workers_str)
+        except ValueError:
+            max_workers = 4
         return cls(
             warehouse_id=os.environ.get("GENIE_WORLD_WAREHOUSE_ID"),
             llm_model=os.environ.get("GENIE_WORLD_LLM_MODEL", "databricks-claude-sonnet-4-6"),
             storage_path=os.environ.get("GENIE_WORLD_STORAGE_PATH"),
             mlflow_experiment_id=os.environ.get("GENIE_WORLD_MLFLOW_EXPERIMENT_ID"),
-            max_workers=int(max_workers_str),
+            max_workers=max_workers,
         )
 
 

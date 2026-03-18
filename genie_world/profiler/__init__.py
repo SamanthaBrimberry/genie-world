@@ -67,6 +67,12 @@ def profile_schema(
     )
     all_warnings.extend(meta_warnings)
 
+    if not tables:
+        logger.warning("No tables found in %s.%s", catalog, schema)
+        all_warnings.append(ProfilingWarning(
+            table="*", tier="metadata", message=f"No tables found in {catalog}.{schema}",
+        ))
+
     # --- Tier 2: data stats (parallel) ---
     if deep and warehouse_id:
         enriched: list[TableProfile] = []

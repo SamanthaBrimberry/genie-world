@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from genie_world.core.sql import execute_sql
 from genie_world.core.tracing import trace
@@ -41,7 +42,7 @@ def _build_profile_sql(full_table_name: str, columns: list[ColumnProfile]) -> st
 
     for col in columns:
         safe = f"`{col.name}`"
-        col_key = col.name.replace(" ", "_")
+        col_key = re.sub(r"[^a-zA-Z0-9_]", "_", col.name)
 
         parts.append(f"COUNT(DISTINCT {safe}) AS `{col_key}__distinct`")
         parts.append(
@@ -115,7 +116,7 @@ def enrich_table_with_stats(
 
     enriched_columns: list[ColumnProfile] = []
     for col in table.columns:
-        col_key = col.name.replace(" ", "_")
+        col_key = re.sub(r"[^a-zA-Z0-9_]", "_", col.name)
 
         distinct_raw = row_dict.get(f"{col_key}__distinct")
         null_sum_raw = row_dict.get(f"{col_key}__null_sum")

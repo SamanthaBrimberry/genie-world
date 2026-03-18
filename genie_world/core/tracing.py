@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable, Optional, TypeVar
+from typing import Callable, TypeVar
 
 F = TypeVar("F", bound=Callable)
 

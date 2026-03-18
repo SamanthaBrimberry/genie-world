@@ -71,7 +71,6 @@ def build_space(
         ))
 
     # Surface table exclusion suggestions
-    from genie_world.builder.data_sources import suggest_table_exclusions
     suggestions = suggest_table_exclusions(profile)
     for s in suggestions:
         if not include_tables and s["table"].lower() not in set(t.lower() for t in (exclude_tables or [])):

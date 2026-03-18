@@ -16,7 +16,7 @@ from genie_world.profiler.models import (
 
 logger = logging.getLogger(__name__)
 
-_VALID_IDENTIFIER = re.compile(r"^[a-zA-Z0-9_]+$")
+_VALID_IDENTIFIER = re.compile(r"^[a-zA-Z0-9_\-]+$")
 
 
 def _validate_identifier(name: str, label: str) -> str:
@@ -142,6 +142,13 @@ def enrich_with_usage(
         return tables, []
 
     table_names = [t.table for t in tables]
+    # Validate table names to prevent SQL injection via single quotes
+    for name in table_names:
+        if "'" in name or "\\" in name:
+            return tables, [ProfilingWarning(
+                table=name, tier="usage",
+                message=f"Table name contains unsafe characters: {name!r}",
+            )]
     table_list_sql = ", ".join(f"'{t}'" for t in table_names)
 
     sql = f"""
@@ -197,7 +204,10 @@ GROUP BY t.table_name
     freq_map: dict[str, int] = {}
     for row in result.get("data", []):
         table_name, query_count = row
-        freq_map[table_name] = int(query_count)
+        try:
+            freq_map[table_name] = int(query_count)
+        except (ValueError, TypeError):
+            continue
 
     enriched: list[TableProfile] = []
     for table in tables:
