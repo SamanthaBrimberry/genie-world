@@ -54,7 +54,9 @@ def _build_profile_sql(full_table_name: str, columns: list[ColumnProfile]) -> st
             parts.append(f"MAX({safe}) AS `{col_key}__max`")
 
     select_clause = ",\n  ".join(parts)
-    return f"SELECT\n  {select_clause}\nFROM {full_table_name}"
+    # Backtick-quote each part of the table name for safety
+    parts_quoted = ".".join(f"`{p}`" for p in full_table_name.split("."))
+    return f"SELECT\n  {select_clause}\nFROM {parts_quoted}"
 
 
 @trace

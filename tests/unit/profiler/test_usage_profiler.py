@@ -134,8 +134,8 @@ class TestEnrichWithUsage:
                 {"name": "query_count", "type_name": "BIGINT"},
             ],
             "data": [
-                ["main.sales.orders", "42"],
-                ["main.sales.customers", "17"],
+                ["orders", "42"],
+                ["customers", "17"],
             ],
             "row_count": 2,
             "truncated": False,
@@ -194,7 +194,7 @@ class TestEnrichWithUsage:
                 {"name": "table_name", "type_name": "STRING"},
                 {"name": "query_count", "type_name": "BIGINT"},
             ],
-            "data": [["main.sales.orders", "5"]],
+            "data": [["orders", "5"]],
             "row_count": 1,
             "truncated": False,
         }

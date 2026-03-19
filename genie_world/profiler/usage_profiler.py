@@ -211,8 +211,8 @@ GROUP BY t.table_name
 
     enriched: list[TableProfile] = []
     for table in tables:
-        full_name = f"{table.catalog}.{table.schema_name}.{table.table}"
-        freq = freq_map.get(full_name)
+        # freq_map uses short table names (from system table queries)
+        freq = freq_map.get(table.table)
         if freq is not None:
             enriched.append(table.model_copy(update={"query_frequency": freq}))
         else:

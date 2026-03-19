@@ -300,7 +300,7 @@ def _suggest_date_expression(
             )
         )
 
-    return suggestions[0] if suggestions else None
+    return suggestions if suggestions else None
 
 
 @trace(name="generate_suggestions", span_type="CHAIN")
@@ -333,9 +333,12 @@ def generate_suggestions(
 
     for diagnosis in diagnoses:
         try:
-            suggestion = _route_diagnosis(diagnosis, results, warehouse_id)
-            if suggestion is not None:
-                suggestions.append(suggestion)
+            result = _route_diagnosis(diagnosis, results, warehouse_id)
+            if result is not None:
+                if isinstance(result, list):
+                    suggestions.extend(result)
+                else:
+                    suggestions.append(result)
         except Exception as e:
             logger.warning(
                 "Failed to generate suggestion for question %r (failure_type=%s): %s",

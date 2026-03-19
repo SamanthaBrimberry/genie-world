@@ -5,7 +5,7 @@ from __future__ import annotations
 from genie_world.profiler.models import ColumnProfile, SchemaProfile
 
 _INTERNAL_COLUMN_PATTERNS = {"_metadata", "_rescued_data", "_commit_version", "_commit_timestamp"}
-_DATE_TYPES = {"DATE", "TIMESTAMP"}
+_DATE_TYPES = {"DATE", "TIMESTAMP", "TIMESTAMP_NTZ"}
 _STRING_TYPES = {"STRING", "CHAR", "VARCHAR"}
 _NUMERIC_TYPES = {"INT", "BIGINT", "LONG", "SHORT", "BYTE", "FLOAT", "DOUBLE", "DECIMAL"}
 _ENTITY_MATCHING_CARDINALITY_THRESHOLD = 100
@@ -26,7 +26,7 @@ def _should_enable_entity_matching(col: ColumnProfile) -> bool:
     columns users will filter by name. Uses cardinality when available, falls back
     to name-based heuristics.
     """
-    is_string = col.data_type.upper() in _STRING_TYPES
+    is_string = col.data_type.upper().split('(')[0].strip() in _STRING_TYPES
     if not is_string:
         return False
 
@@ -57,7 +57,7 @@ def _should_enable_format_assistance(col: ColumnProfile) -> bool:
     Enables format assistance for date/timestamp columns and string columns
     that are likely categorical (helps Genie show format hints to users).
     """
-    is_date = col.data_type.upper() in _DATE_TYPES
+    is_date = col.data_type.upper().split('(')[0].strip() in _DATE_TYPES
     if is_date:
         return True
 

@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import patch, MagicMock, call
-from datetime import datetime
+from datetime import datetime, timezone
 
 from genie_world.benchmarks import run_benchmarks, tune_space, BenchmarkResult, TuneResult
 from genie_world.benchmarks.models import (
@@ -45,7 +45,7 @@ def _make_benchmark_result(
         expected_sql_errors=expected_sql_errors,
         warnings=[],
         space_config=space_config or {},
-        run_at=datetime.utcnow(),
+        run_at=datetime.now(tz=timezone.utc),
     )
 
 

@@ -7,7 +7,7 @@ updating spaces, and iterative auto-tuning.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from genie_world.benchmarks import evaluator, runner
 from genie_world.benchmarks.diagnoser import diagnose_failures
@@ -91,9 +91,14 @@ def run_benchmarks(
     # Step 3: Extract questions from config
     config_questions = runner.extract_questions_from_config(space_config)
 
-    # Step 4: Convert custom questions
+    # Step 4: Convert custom questions (with key validation)
     custom_inputs: list[QuestionInput] = []
-    for cq in (custom_questions or []):
+    for i, cq in enumerate(custom_questions or []):
+        if "question" not in cq or "expected_sql" not in cq:
+            raise ValueError(
+                f"Custom question {i} must have 'question' and 'expected_sql' keys, "
+                f"got: {list(cq.keys())}"
+            )
         custom_inputs.append(
             QuestionInput(
                 question=cq["question"],
@@ -111,6 +116,20 @@ def run_benchmarks(
 
     # Step 7: Run questions in parallel
     genie_responses = runner.run_questions(space_id, all_questions, max_workers=max_workers)
+
+    # Verify alignment — responses must match questions 1:1
+    if len(genie_responses) != len(all_questions):
+        logger.error(
+            "Response count mismatch: %d questions but %d responses",
+            len(all_questions), len(genie_responses),
+        )
+        # Pad with failed responses to maintain alignment
+        while len(genie_responses) < len(all_questions):
+            genie_responses.append(GenieResponse(
+                question=all_questions[len(genie_responses)].question,
+                status="FAILED", error="Response missing from runner",
+                duration_seconds=0.0,
+            ))
 
     # Step 8: Evaluate each question
     question_results: list[QuestionResult] = []
@@ -168,7 +187,7 @@ def run_benchmarks(
         expected_sql_errors=expected_sql_errors,
         warnings=[],
         space_config=space_config,
-        run_at=datetime.utcnow(),
+        run_at=datetime.now(tz=timezone.utc),
     )
 
 

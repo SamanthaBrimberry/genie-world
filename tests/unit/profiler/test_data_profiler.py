@@ -32,7 +32,7 @@ class TestBuildProfileSql:
         assert "COUNT(*)" in sql
         assert "`id`" in sql
         assert "`name`" in sql
-        assert "main.sales.orders" in sql
+        assert "`main`.`sales`.`orders`" in sql
 
     def test_numeric_columns_get_min_max(self):
         """Numeric columns should get MIN/MAX expressions."""
