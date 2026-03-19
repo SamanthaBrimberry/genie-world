@@ -24,7 +24,7 @@ Requires Python 3.10+ and a Databricks workspace.
 
 ## Quick Start
 
-### Profile a schema
+### 1. Profile your data
 
 ```python
 from genie_world.profiler import profile_schema
@@ -44,28 +44,19 @@ profile = profile_schema(
 
 for table in profile.tables:
     print(f"{table.table} — {len(table.columns)} columns")
-
-for rel in profile.relationships:
-    print(f"  {rel.source_table}.{rel.source_column} -> {rel.target_table}.{rel.target_column}")
 ```
 
-### Build a Genie Space
+### 2. Build and deploy a Genie Space
 
 ```python
 from genie_world.builder import build_space, create_space
 
-# Generate complete config (instructions, examples, benchmarks, join specs)
+# Generate complete config (instructions, examples, benchmarks, snippets)
 result = build_space(profile, warehouse_id="abc123")
 
 # Check for warnings
 for w in result.warnings:
     print(f"[{w.section}] {w.message}")
-
-# Inspect what was generated
-config = result.config
-print(f"Example SQLs: {len(config['instructions']['example_question_sqls'])}")
-print(f"Join specs: {len(config['instructions']['join_specs'])}")
-print(f"Benchmarks: {len(config.get('benchmarks', {}).get('questions', []))}")
 
 # Deploy to Databricks
 space = create_space(
@@ -77,39 +68,61 @@ space = create_space(
 print(f"Space URL: {space['space_url']}")
 ```
 
-### Fine-grained control
+### 3. Benchmark and improve accuracy
 
 ```python
-from genie_world.builder import (
-    generate_data_sources, generate_join_specs, generate_snippets,
-    generate_example_sqls, generate_benchmarks, generate_instructions,
-    assemble_space, create_space,
-)
+from genie_world.benchmarks import run_benchmarks, diagnose_failures, generate_suggestions, update_space
 
-# Generate sections individually
-data_sources = generate_data_sources(profile)
-join_specs = generate_join_specs(profile)
-snippets = generate_snippets(profile)
-examples, _ = generate_example_sqls(profile, join_specs, snippets, warehouse_id="abc123")
-benchmarks, _ = generate_benchmarks(profile, join_specs, snippets, examples, warehouse_id="abc123")
-instructions = generate_instructions(profile, join_specs, snippets, examples)
+# Run benchmarks against the live space
+results = run_benchmarks(space["space_id"], "abc123")
+print(f"Accuracy: {results.accuracy:.0%} ({results.correct}/{results.total})")
 
-# Customize before assembling
-instructions[0]["content"].append("Always use fiscal quarters, not calendar quarters.")
+# Diagnose failures and generate improvements
+diagnoses = diagnose_failures(results)
+suggestions = generate_suggestions(diagnoses, results, "abc123")
 
-config = assemble_space(data_sources, join_specs, instructions, snippets, examples, benchmarks)
+# Review and apply
+for s in suggestions:
+    print(f"[{s.section}] {s.action}: {s.rationale}")
+update_space(space["space_id"], suggestions, "abc123")
 ```
+
+### 4. Auto-tune (one-liner)
+
+```python
+from genie_world.benchmarks import tune_space
+
+result = tune_space(
+    space["space_id"], "abc123",
+    target_accuracy=0.9,
+    max_iterations=3,
+    auto_approve=True,
+)
+print(f"Final accuracy: {result.final_accuracy:.0%} in {len(result.iterations)} iterations")
+```
+
+## The Full Pipeline
+
+```
+Profile → Build → Deploy → Benchmark → Diagnose → Suggest → Update → Re-benchmark
+   │         │        │         │           │          │          │          │
+   ▼         ▼        ▼         ▼           ▼          ▼          ▼          ▼
+ Schema   Config   Live     70% acc    Failure    Config     PATCH     90-100%
+ Profile  + SQL    Space              types      changes    API       accuracy
+```
+
+Tested end-to-end: a Genie Space went from **70% to 100% accuracy** in 2 automated tuning cycles.
 
 ## Building Blocks
 
-Genie World is designed as composable building blocks. Each block is independently importable and useful on its own.
+Each block is independently importable and useful on its own.
 
 | Block | Status | Description |
 |-------|--------|-------------|
-| **Core** | Done | Auth, config, SQL execution, LLM (FMAPI), storage, tracing |
+| **Core** | Done | Auth, config, SQL execution, LLM (FMAPI), Genie client, storage, tracing |
 | **Profiler** | Done | Table/column metadata, statistics, PK/FK detection, synonyms, description enrichment |
-| **Builder** | Done | Generate Genie Space configs from profiles, validate SQL, deploy spaces |
-| **Benchmarks** | Planned | Auto-generate benchmark questions, evaluate accuracy |
+| **Builder** | Done | Generate Genie Space configs, validate SQL, deploy spaces |
+| **Benchmarks** | Done | Run questions, evaluate accuracy, diagnose failures, suggest improvements, update spaces |
 | **Observability** | Planned | Full state-transition tracing, multi-space monitoring |
 | **Analyzer** | Planned | Best-practices checklist evaluation, optimization suggestions |
 | **Feedback** | Planned | Config versioning, conflict detection, query pattern analysis |
@@ -150,7 +163,7 @@ The builder generates complete Genie Space configurations from profiler output:
 
 **LLM generators**:
 - `snippets` — SQL filters, expressions, and measures
-- `example_sqls` — example Q&A pairs with validated SQL
+- `example_sqls` — example Q&A pairs with validated SQL (including parameterized queries)
 - `benchmarks` — benchmark questions (different from examples)
 - `instructions` — text instructions (generated last to avoid conflicts)
 
@@ -159,6 +172,45 @@ The builder generates complete Genie Space configurations from profiler output:
 **Assembler**: Combines all sections, generates 32-char hex IDs, enforces Genie Space schema constraints (string arrays, sorting, size limits).
 
 **Deployer**: Creates the space via Databricks API with pre-flight size checks.
+
+**Table suggestions**: `suggest_table_exclusions(profile)` recommends tables to exclude (non-queryable types, etc.) — user decides, nothing is silently filtered.
+
+## Benchmarks
+
+The benchmarks block evaluates and improves Genie Space accuracy:
+
+**Runner**: Queries the Genie Conversation API per question in parallel. Extracts questions from the space config and/or accepts custom questions.
+
+**Evaluator**: Hybrid comparison (programmatic + LLM fallback):
+- Positional column matching (tolerates alias differences)
+- NULL-aware, numeric tolerance (0.1% relative)
+- Order-sensitive when ORDER BY detected, LLM judgment for ambiguous ordering
+- Performance capture (execution time, row count)
+
+**Diagnoser**: Classifies failures by type — wrong table, missing join, wrong aggregation, missing filter, entity mismatch, wrong date handling, etc. Flags performance issues (10x slower queries).
+
+**Suggester**: Generates targeted config changes per failure type — adds examples, updates instructions, creates filter snippets, fixes column synonyms. Validates suggested SQL against the warehouse.
+
+**Updater**: Fetches current config, merges suggestions (add/update/remove), preserves existing IDs, re-enforces constraints, PATCHes the space in place.
+
+**Auto-tune**: `tune_space()` wraps the full pipeline in an iterative loop with configurable target accuracy and max iterations. Includes regression detection.
+
+## Fine-Grained Control
+
+Every generator is independently importable:
+
+```python
+from genie_world.builder import (
+    generate_data_sources, generate_join_specs, generate_snippets,
+    generate_example_sqls, generate_benchmarks, generate_instructions,
+    assemble_space, create_space, suggest_table_exclusions,
+)
+
+from genie_world.benchmarks import (
+    run_benchmarks, diagnose_failures, generate_suggestions,
+    update_space, tune_space,
+)
+```
 
 ## Configuration
 
@@ -183,15 +235,16 @@ export GENIE_WORLD_STORAGE_PATH=/Volumes/my/artifacts
 
 ```
 genie_world/
-├── core/                       # Shared infrastructure
+├── core/                       # Shared infrastructure (9 modules)
 │   ├── auth.py                 # WorkspaceClient factory (OBO + PAT/CLI)
 │   ├── config.py               # GenieWorldConfig with env var support
+│   ├── genie_client.py         # Genie Conversation API wrapper
 │   ├── llm.py                  # FMAPI via workspace client raw API
 │   ├── sql.py                  # Statement Execution API with read-only validation
 │   ├── storage.py              # Artifact persistence (local filesystem)
 │   ├── tracing.py              # MLflow @trace decorator (no-op fallback)
 │   └── models.py               # Shared types (SpaceConfig stub)
-├── profiler/                   # Data Profiler block
+├── profiler/                   # Data Profiler block (8 modules)
 │   ├── __init__.py             # Public API: profile_schema(), profile_tables()
 │   ├── models.py               # SchemaProfile, TableProfile, ColumnProfile, etc.
 │   ├── metadata_profiler.py    # Tier 1: UC API metadata
@@ -200,7 +253,7 @@ genie_world/
 │   ├── relationship_detector.py # PK/FK inference (naming + shared columns)
 │   ├── synonym_generator.py    # LLM-powered synonyms
 │   └── description_enricher.py # LLM-powered missing description generation
-├── builder/                    # Space Builder block
+├── builder/                    # Space Builder block (10 modules)
 │   ├── __init__.py             # Public API: build_space(), BuildResult
 │   ├── data_sources.py         # Deterministic: profile -> tables + column_configs
 │   ├── join_specs.py           # Deterministic: relationships -> join SQL
@@ -211,7 +264,14 @@ genie_world/
 │   ├── sql_validator.py        # Execute SQL, LLM fix, retry up to 3x
 │   ├── assembler.py            # Combine sections, IDs, constraints, sorting
 │   └── deployer.py             # Create space via Databricks API
-├── benchmarks/                 # (planned) Benchmark Engine
+├── benchmarks/                 # Benchmarks block (8 modules)
+│   ├── __init__.py             # Public API: run_benchmarks(), tune_space()
+│   ├── models.py               # BenchmarkResult, QuestionResult, Diagnosis, etc.
+│   ├── runner.py               # Parallel question execution via GenieClient
+│   ├── evaluator.py            # Hybrid comparison + performance capture
+│   ├── diagnoser.py            # Failure classification + performance flagging
+│   ├── suggester.py            # Targeted config change suggestions
+│   └── updater.py              # Config merge + PATCH API updates
 ├── observability/              # (planned) Tracing & Monitoring
 ├── analyzer/                   # (planned) Analyzer & Optimizer
 └── feedback/                   # (planned) Versioning & Patterns
@@ -227,13 +287,14 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Run tests (142 tests)
+# Run tests (260 tests)
 pytest tests/ -v
 
 # Run specific block tests
+pytest tests/unit/core/ -v
 pytest tests/unit/profiler/ -v
 pytest tests/unit/builder/ -v
-pytest tests/unit/core/ -v
+pytest tests/unit/benchmarks/ -v
 ```
 
 ## Baselines
