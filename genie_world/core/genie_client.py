@@ -94,6 +94,7 @@ class GenieClient:
 
             if status != last_status:
                 states.append(status)
+                self._log_state_span(status, message, time.time() - start)
                 last_status = status
 
             if status in _TERMINAL_STATES:
@@ -166,6 +167,38 @@ class GenieClient:
             result=result, duration_seconds=duration,
             states=states, conversation_id=conv_id,
         )
+
+    @staticmethod
+    def _log_state_span(status: str, message: dict, elapsed: float) -> None:
+        """Log an MLflow child span for a Genie state transition."""
+        try:
+            import mlflow
+
+            with mlflow.start_span(name=f"state_{status}") as span:
+                # Extract SQL if present at this state
+                sql = None
+                for att in message.get("attachments") or []:
+                    if att.get("query"):
+                        sql = att["query"].get("query")
+
+                span.set_inputs({"elapsed_sec": round(elapsed, 2)})
+                span.set_attributes({
+                    "status": status,
+                    "has_sql": sql is not None,
+                    "attachment_count": len(message.get("attachments") or []),
+                })
+                if sql:
+                    span.set_attributes({"generated_sql": sql})
+                if message.get("error"):
+                    span.set_attributes({"error": str(message["error"])})
+
+                span.set_outputs({
+                    "status": status,
+                    "generated_sql": sql,
+                    "full_response": message,
+                })
+        except ImportError:
+            pass
 
     @trace(name="genie_get_config", span_type="CHAIN")
     def get_config(self) -> dict:
