@@ -20,19 +20,20 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: website/package-lock.json
+          node-version: 22
       - name: Install dependencies
-        run: npm ci
-        working-directory: website
+        run: npm install --prefer-offline --no-audit
+      - name: Verify docusaurus binary
+        run: ls -la node_modules/.bin/docusaurus
       - name: Build site
-        run: ./node_modules/.bin/docusaurus build
-        working-directory: website
+        run: node node_modules/@docusaurus/core/bin/docusaurus.mjs build
       - uses: actions/upload-pages-artifact@v3
         with:
           path: website/build
