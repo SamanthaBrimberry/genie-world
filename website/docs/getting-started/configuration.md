@@ -13,6 +13,9 @@ from genie_world.core.config import GenieWorldConfig, set_config
 set_config(GenieWorldConfig(
     warehouse_id="your-warehouse-id",
     llm_model="databricks-claude-sonnet-4-6",
+    storage_path="/tmp/genie-world",
+    mlflow_experiment_id="12345",
+    max_workers=4,
 ))
 ```
 
@@ -21,6 +24,9 @@ set_config(GenieWorldConfig(
 ```bash
 export GENIE_WORLD_WAREHOUSE_ID=your-warehouse-id
 export GENIE_WORLD_LLM_MODEL=databricks-claude-sonnet-4-6
+export GENIE_WORLD_STORAGE_PATH=/tmp/genie-world
+export GENIE_WORLD_MLFLOW_EXPERIMENT_ID=12345
+export GENIE_WORLD_MAX_WORKERS=4  # default: 4
 ```
 
 ## Authentication

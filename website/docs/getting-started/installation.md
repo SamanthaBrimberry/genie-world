@@ -42,3 +42,18 @@ dbutils.library.restartPython()
 import genie_world
 print(genie_world.__version__)
 ```
+
+## Optional Dependencies
+
+Install only what you need:
+
+```bash
+pip install "genie-world[profiler]"  # httpx for profiler
+pip install "genie-world[llm]"       # LLM extras (reserved for future deps)
+pip install "genie-world[tracing]"   # mlflow for tracing
+pip install "genie-world[all]"       # everything, including dev dependencies
+```
+
+:::note
+The `[all]` extra includes `profiler`, `llm`, `tracing`, **and** `dev` dependencies (pytest, pytest-mock). For production installs, prefer installing only the extras you need.
+:::

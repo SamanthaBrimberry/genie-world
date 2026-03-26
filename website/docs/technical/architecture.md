@@ -26,6 +26,10 @@ Genie World is organized into four modular blocks, each with a clear responsibil
                     │             │
                     │ Auth, SQL,  │
                     │ LLM, Config,│
+                    │ Retry,      │
+                    │ Storage,    │
+                    │ Models,     │
+                    │ GenieClient,│
                     │ Tracing     │
                     └─────────────┘
 ```
