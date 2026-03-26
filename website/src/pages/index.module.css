@@ -1,0 +1,191 @@
+/**
+ * Landing page — oatmeal canvas, white hero card, feature cards
+ */
+
+.heroBanner {
+  padding: 5rem 1.5rem 3rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  background: #F5F2EE;
+}
+
+[data-theme='dark'] .heroBanner {
+  background: #1A1816;
+}
+
+.heroCard {
+  max-width: 720px;
+  margin: 0 auto;
+  background: #FFFFFF;
+  border: 1px solid #E5DDD4;
+  border-radius: 12px;
+  padding: 3rem 2rem;
+}
+
+[data-theme='dark'] .heroCard {
+  background: #242220;
+  border-color: #3A3633;
+}
+
+.heroCard h1 {
+  font-size: 2.8rem;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+  color: #1B3A4B;
+  margin-bottom: 0.5rem;
+}
+
+[data-theme='dark'] .heroCard h1 {
+  color: #E8E3DC;
+}
+
+.heroCard p {
+  font-size: 1.1rem;
+  color: #8C877D;
+  max-width: 520px;
+  margin: 0 auto 2rem;
+  line-height: 1.6;
+}
+
+[data-theme='dark'] .heroCard p {
+  color: #9E9890;
+}
+
+@media screen and (max-width: 996px) {
+  .heroBanner {
+    padding: 3rem 1rem 2rem;
+  }
+  .heroCard {
+    padding: 2rem 1.5rem;
+  }
+  .heroCard h1 {
+    font-size: 2rem;
+  }
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.buttonPrimary {
+  display: inline-block;
+  background: #1B3A4B;
+  color: #FFFFFF;
+  padding: 0.65rem 1.8rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+  border: none;
+}
+
+.buttonPrimary:hover {
+  opacity: 0.88;
+  color: #FFFFFF;
+  text-decoration: none;
+}
+
+[data-theme='dark'] .buttonPrimary {
+  background: #E8E3DC;
+  color: #1A1816;
+}
+
+.buttonSecondary {
+  display: inline-block;
+  background: #FFFFFF;
+  color: #1B3A4B;
+  padding: 0.65rem 1.8rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+  border: 1px solid #E5DDD4;
+  transition: border-color 0.15s ease;
+}
+
+.buttonSecondary:hover {
+  border-color: #D4CCC2;
+  color: #1B3A4B;
+  text-decoration: none;
+}
+
+[data-theme='dark'] .buttonSecondary {
+  background: #242220;
+  color: #E8E3DC;
+  border-color: #3A3633;
+}
+
+[data-theme='dark'] .buttonSecondary:hover {
+  border-color: #4A4643;
+  color: #E8E3DC;
+}
+
+/* ── Feature cards ── */
+.features {
+  padding: 3rem 0 4rem;
+  background: #F5F2EE;
+}
+
+[data-theme='dark'] .features {
+  background: #1A1816;
+}
+
+.featureCard {
+  padding: 1.75rem;
+  border-radius: 10px;
+  border: 1px solid #E5DDD4;
+  background: #FFFFFF;
+  transition: border-color 0.2s ease;
+  height: 100%;
+}
+
+.featureCard:hover {
+  border-color: #D4CCC2;
+}
+
+[data-theme='dark'] .featureCard {
+  background: #242220;
+  border-color: #3A3633;
+}
+
+[data-theme='dark'] .featureCard:hover {
+  border-color: #4A4643;
+}
+
+.stepNumber {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #FF3621;
+  margin-bottom: 0.6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-theme='dark'] .stepNumber {
+  color: #FF5240;
+}
+
+.featureCard h3 {
+  font-size: 1.05rem;
+  color: #1B3A4B;
+  margin-bottom: 0.4rem;
+}
+
+[data-theme='dark'] .featureCard h3 {
+  color: #E8E3DC;
+}
+
+.featureCard p {
+  font-size: 0.9rem;
+  color: #8C877D;
+  line-height: 1.6;
+  margin: 0;
+}
+
+[data-theme='dark'] .featureCard p {
+  color: #9E9890;
+}

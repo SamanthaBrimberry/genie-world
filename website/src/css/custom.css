@@ -1,0 +1,201 @@
+/**
+ * Genie World — Databricks-branded clean & light theme
+ * Palette: oatmeal, white, navy, warm gray, red (sparse)
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* Databricks palette */
+  --ifm-color-primary: #FF3621;
+  --ifm-color-primary-dark: #E52E18;
+  --ifm-color-primary-darker: #D42B16;
+  --ifm-color-primary-darkest: #AF2312;
+  --ifm-color-primary-light: #FF5240;
+  --ifm-color-primary-lighter: #FF6352;
+  --ifm-color-primary-lightest: #FF8A7E;
+
+  /* Surfaces */
+  --ifm-background-color: #F5F2EE;
+  --ifm-navbar-background-color: #F5F2EE;
+  --ifm-footer-background-color: #1B3A4B;
+
+  /* Typography */
+  --ifm-font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ifm-font-family-monospace: 'JetBrains Mono', 'Fira Code', monospace;
+  --ifm-heading-font-weight: 600;
+  --ifm-font-weight-bold: 600;
+  --ifm-font-color-base: #1B3A4B;
+
+  /* Sizing */
+  --ifm-code-font-size: 90%;
+  --ifm-global-radius: 6px;
+  --ifm-navbar-height: 3.5rem;
+
+  /* Borders */
+  --ifm-color-emphasis-300: #E5DDD4;
+
+  --docusaurus-highlighted-code-line-bg: rgba(255, 54, 33, 0.06);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #FF5240;
+  --ifm-color-primary-dark: #FF3621;
+  --ifm-color-primary-darker: #F52E18;
+  --ifm-color-primary-darkest: #D42B16;
+  --ifm-color-primary-light: #FF6B5C;
+  --ifm-color-primary-lighter: #FF8A7E;
+  --ifm-color-primary-lightest: #FFB3AB;
+
+  --ifm-background-color: #1A1816;
+  --ifm-navbar-background-color: #1A1816;
+  --ifm-footer-background-color: #141210;
+  --ifm-font-color-base: #E8E3DC;
+  --ifm-color-emphasis-300: #3A3633;
+
+  --docusaurus-highlighted-code-line-bg: rgba(255, 82, 64, 0.12);
+}
+
+/* ── Navbar ── */
+.navbar {
+  box-shadow: 0 1px 0 0 var(--ifm-color-emphasis-300);
+}
+
+.navbar__title {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #1B3A4B;
+}
+
+[data-theme='dark'] .navbar__title {
+  color: #E8E3DC;
+}
+
+.navbar__link {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+/* ── Sidebar ── */
+.menu__link {
+  font-size: 0.875rem;
+  font-weight: 450;
+  border-radius: var(--ifm-global-radius);
+  transition: background-color 0.15s ease;
+}
+
+.menu__link--active:not(.menu__link--sublist) {
+  background-color: rgba(255, 54, 33, 0.06);
+  color: #FF3621;
+  font-weight: 600;
+}
+
+[data-theme='dark'] .menu__link--active:not(.menu__link--sublist) {
+  background-color: rgba(255, 82, 64, 0.1);
+  color: #FF5240;
+}
+
+/* ── Content area — white panel ── */
+.docMainContainer_node_modules-\@docusaurus-theme-classic-lib-theme-DocPage-Layout-Main-styles-module,
+[class*='docMainContainer'] {
+  background: #FFFFFF;
+}
+
+[data-theme='dark'] [class*='docMainContainer'] {
+  background: #242220;
+}
+
+/* ── Headings ── */
+.markdown h1 {
+  font-size: 2rem;
+  letter-spacing: -0.03em;
+  color: #1B3A4B;
+}
+
+[data-theme='dark'] .markdown h1 {
+  color: #E8E3DC;
+}
+
+.markdown h2 {
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
+  margin-top: 2rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-300);
+}
+
+.markdown h3 {
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+}
+
+.markdown p,
+.markdown li {
+  line-height: 1.7;
+}
+
+/* ── Code blocks — GitHub-light style ── */
+pre[class*='language-'] {
+  border-radius: 6px;
+  border: 1px solid #E5E7EB;
+  background-color: #F6F8FA;
+}
+
+[data-theme='dark'] pre[class*='language-'] {
+  border-color: #3A3633;
+}
+
+code {
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+  font-size: 0.875em;
+}
+
+/* ── Tables ── */
+table {
+  font-size: 0.9rem;
+  border-collapse: collapse;
+}
+
+table th {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: #8C877D;
+}
+
+[data-theme='dark'] table th {
+  color: #9E9890;
+}
+
+table td,
+table th {
+  border-color: var(--ifm-color-emphasis-300);
+}
+
+/* ── Footer ── */
+.footer {
+  border-top: none;
+}
+
+.footer__title {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+.footer__link-item {
+  font-size: 0.875rem;
+}
+
+/* ── TOC (right sidebar) ── */
+.table-of-contents__link {
+  font-size: 0.825rem;
+}
+
+.table-of-contents__link--active {
+  font-weight: 600;
+  color: var(--ifm-color-primary);
+}
