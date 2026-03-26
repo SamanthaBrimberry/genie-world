@@ -29,11 +29,9 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm install --prefer-offline --no-audit
-      - name: Verify docusaurus binary
-        run: ls -la node_modules/.bin/docusaurus
+        run: yarn install --frozen-lockfile || yarn install
       - name: Build site
-        run: node node_modules/@docusaurus/core/bin/docusaurus.mjs build
+        run: yarn build
       - uses: actions/upload-pages-artifact@v3
         with:
           path: website/build
